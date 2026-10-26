@@ -1,0 +1,967 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Budget + Savings</title>
+<meta name="description" content="A personal salary-day planner. Your data lives in your own private storage, not in this app.">
+<meta name="robots" content="noindex">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Budget">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+<style>
+/* Layout: a phone app. Bottom tab bar (Today · Month · Budget · Grow) on iPhone, a sidebar on the Mac,
+   one column of iOS inset-grouped lists. One accent colour, money green. */
+:root{
+  --bg:#f2f2f7; --card:#ffffff; --side:#e9e9ef; --bar:rgba(242,242,247,.88);
+  --ink:#111114; --muted:#6c6c72; --faint:#a3a3aa; --hair:rgba(60,60,67,.17);
+  --fill:rgba(118,118,128,.12); --fill-strong:rgba(120,120,128,.26); --seg-on:#ffffff;
+  --accent:#0d7a4c; --accent-ink:#ffffff; --accent-soft:rgba(13,122,76,.09); --warn:#b4530a;
+  --font:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,"Helvetica Neue",sans-serif;
+  --num:ui-rounded,"SF Pro Rounded",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){ :root:not([data-theme="light"]){
+  --bg:#000000; --card:#1c1c1e; --side:#111113; --bar:rgba(10,10,12,.86);
+  --ink:#f5f5f7; --muted:#9a9aa1; --faint:#636368; --hair:rgba(84,84,88,.6);
+  --fill:rgba(118,118,128,.24); --fill-strong:rgba(120,120,128,.4); --seg-on:#636366;
+  --accent:#3ec488; --accent-ink:#03140c; --accent-soft:rgba(62,196,136,.14); --warn:#ffb15c;
+  color-scheme:dark;
+} }
+:root[data-theme="dark"]{
+  --bg:#000000; --card:#1c1c1e; --side:#111113; --bar:rgba(10,10,12,.86);
+  --ink:#f5f5f7; --muted:#9a9aa1; --faint:#636368; --hair:rgba(84,84,88,.6);
+  --fill:rgba(118,118,128,.24); --fill-strong:rgba(120,120,128,.4); --seg-on:#636366;
+  --accent:#3ec488; --accent-ink:#03140c; --accent-soft:rgba(62,196,136,.14); --warn:#ffb15c;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+[hidden]{display:none!important}
+body{background:var(--bg);color:var(--ink);font-family:var(--font);font-size:17px;line-height:1.3;-webkit-font-smoothing:antialiased;-webkit-text-size-adjust:100%}
+body{padding-top:env(safe-area-inset-top,0px)}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bg)}
+button{font:inherit;color:inherit}
+h1,h2,h3,p{margin:0}
+
+/* chrome */
+.side{display:none}
+.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;display:flex;align-items:center;justify-content:space-between;gap:10px;
+  background:var(--bar);-webkit-backdrop-filter:saturate(180%) blur(20px);backdrop-filter:saturate(180%) blur(20px);border-bottom:.5px solid var(--hair);
+  padding-block:6px;padding-left:max(10px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.month{display:flex;align-items:center}
+.month button{appearance:none;border:0;background:none;color:var(--accent);font-size:26px;line-height:1;padding:4px 10px 6px;cursor:pointer;border-radius:8px}
+.month button:focus-visible{outline:2px solid var(--accent)}
+.month-label{font-weight:600;font-size:17px;min-width:8.6em;text-align:center}
+.sync{font-size:13px;color:var(--muted);display:flex;align-items:center;gap:6px;white-space:nowrap}
+.sync::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--faint);flex:none}
+.sync[data-s="synced"]::before{background:var(--accent)}
+.sync[data-s="error"]::before,.sync[data-s="auth"]::before,.sync[data-s="conflict"]::before{background:var(--warn)}
+button.sync{appearance:none;border:0;background:none;padding:6px 2px;cursor:pointer;font:inherit;font-size:13px}
+button.sync:focus-visible{outline:2px solid var(--accent);border-radius:6px}
+.banner{display:flex;flex-direction:column;gap:4px;text-align:left;border:0;border-radius:14px;padding:14px 16px;background:var(--accent-soft);color:var(--ink);font:inherit;width:100%}
+.banner b{font-size:16px}
+.banner span{font-size:14px;font-style:italic;color:var(--muted);line-height:1.35}
+.banner.tap{cursor:pointer}
+.banner.warn{background:rgba(180,83,10,.12)}
+.bbtns{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.bbtns button{appearance:none;border:0;border-radius:10px;padding:10px 14px;font-weight:600;font-size:15px;cursor:pointer;background:var(--card);color:var(--ink)}
+.bbtns button:first-child{background:var(--accent);color:var(--accent-ink)}
+.row.link.danger{color:var(--warn)}
+.tabbar{position:fixed;left:0;right:0;bottom:0;z-index:6;display:grid;grid-template-columns:repeat(4,1fr);
+  background:var(--bar);-webkit-backdrop-filter:saturate(180%) blur(20px);backdrop-filter:saturate(180%) blur(20px);border-top:.5px solid var(--hair);
+  padding-bottom:env(safe-area-inset-bottom,0px);padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px)}
+.tabbar button{appearance:none;border:0;background:none;display:flex;flex-direction:column;align-items:center;gap:2px;padding:7px 0 5px;font-size:10.5px;font-weight:600;color:var(--faint);cursor:pointer;-webkit-tap-highlight-color:transparent}
+.tabbar button[aria-current="page"]{color:var(--accent)}
+.tabbar svg,.side-nav svg{width:26px;height:26px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+
+.view{max-width:720px;margin:0 auto;display:flex;flex-direction:column;gap:22px;
+  padding-block:6px calc(100px + env(safe-area-inset-bottom,0px));padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.large{font-size:34px;font-weight:700;letter-spacing:-.02em;line-height:1.1;margin-top:10px;margin-bottom:-6px;text-wrap:balance}
+
+/* cards and grouped lists */
+.card{background:var(--card);border-radius:14px;padding:16px}
+.group{display:flex;flex-direction:column;gap:6px;min-width:0}
+.g-title{font-size:13px;font-weight:400;color:var(--muted);margin:0 16px}
+.g-foot{font-size:13px;font-style:italic;color:var(--muted);margin:0 16px;line-height:1.35}
+.list{background:var(--card);border-radius:12px;overflow:hidden}
+.row{display:flex;align-items:center;gap:10px;min-height:46px;padding:10px 16px;position:relative}
+.row + .row::before,.list > details + .row::before,.list > .row + details::before{content:"";position:absolute;top:0;left:16px;right:0;border-top:.5px solid var(--hair)}
+label.row{cursor:text}
+label.row:has(.sw){cursor:pointer}
+label.row:focus-within{background:var(--accent-soft)}
+.lab{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:2px;overflow-wrap:anywhere}
+.cap{font-size:13px;font-style:italic;color:var(--muted);line-height:1.3}
+.v{flex:0 1 46%;min-width:0;display:flex;flex-direction:column;align-items:flex-end;gap:2px;text-align:right;font-variant-numeric:tabular-nums}
+.vl{display:flex;align-items:baseline;justify-content:flex-end;gap:5px;width:100%}
+.unit{color:var(--muted);font-size:15px;flex:none}
+.vsub{font-size:13px;color:var(--muted);font-style:italic}
+.row.total{font-weight:600}
+.row.total .unit{font-weight:400}
+.row.link{color:var(--accent);cursor:pointer;justify-content:flex-start;appearance:none;border:0;background:none;width:100%;text-align:left;font-size:17px}
+.row.link:hover{background:var(--accent-soft)}
+input.val,input.txt,input.big,input.mini{appearance:none;-webkit-appearance:none;border:0;background:none;font:inherit;color:var(--ink);min-width:0;width:100%;padding:0;margin:0;outline:none;border-radius:0}
+input.val{text-align:right;font-variant-numeric:tabular-nums}
+input.val:focus,input.mini:focus,input.big:focus{color:var(--accent)}
+input::placeholder{color:var(--faint);opacity:1}
+input.mini{display:inline-block;width:4.6em;font-style:normal;color:var(--ink);border-bottom:1px dashed var(--faint);text-align:right;font-variant-numeric:tabular-nums}
+.chip{appearance:none;border:0;background:var(--fill);color:var(--ink);font-size:13px;font-weight:600;padding:5px 10px;border-radius:999px;cursor:pointer;flex:none;min-width:50px}
+.chip:focus-visible,.seg button:focus-visible,.stepper button:focus-visible,.row.link:focus-visible,.btn-plain:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.seg{display:inline-flex;background:var(--fill);border-radius:9px;padding:2px;gap:2px;flex:none}
+.seg button{appearance:none;border:0;background:none;padding:6px 12px;border-radius:7px;font-size:14px;font-weight:600;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--seg-on);box-shadow:0 1px 3px rgba(0,0,0,.14)}
+.sw{appearance:none;-webkit-appearance:none;width:51px;height:31px;border-radius:999px;background:var(--fill-strong);position:relative;flex:none;cursor:pointer;margin:0}
+.sw::after{content:"";position:absolute;top:2px;left:2px;width:27px;height:27px;border-radius:50%;background:#fff;box-shadow:0 2px 5px rgba(0,0,0,.22)}
+.sw:checked{background:var(--accent)}
+.sw:checked::after{transform:translateX(20px)}
+.sw:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.stepper{display:flex;align-items:center;background:var(--fill);border-radius:9px;flex:none}
+.stepper button{appearance:none;border:0;background:none;width:40px;height:32px;font-size:20px;cursor:pointer;border-radius:9px}
+.stepper b{min-width:2.2em;text-align:center;font-variant-numeric:tabular-nums}
+.del{appearance:none;border:0;background:none;color:var(--faint);font-size:22px;line-height:1;padding:2px 2px 4px;cursor:pointer;flex:none}
+.del:hover,.del:focus-visible{color:var(--warn)}
+.btn-plain{appearance:none;border:0;background:var(--card);color:var(--accent);font-weight:600;border-radius:12px;padding:14px 16px;cursor:pointer;width:100%;font-size:17px}
+textarea.copyout{width:100%;min-height:170px;font:13px/1.4 ui-monospace,Menlo,monospace;border:0;border-radius:12px;padding:12px;background:var(--card);color:var(--ink);margin-top:8px}
+
+/* Today */
+.hero-l{font-size:15px;color:var(--muted)}
+.hero-in{display:flex;align-items:baseline;gap:8px;margin-top:2px}
+input.big{font-family:var(--num);font-size:42px;font-weight:700;letter-spacing:-.02em;font-variant-numeric:tabular-nums;line-height:1.1;width:auto;max-width:78%}
+input.big::placeholder{color:var(--ink)}
+.done .sd{display:none}
+.hero-in span{font-size:20px;color:var(--muted);font-weight:600}
+.hero-sub{font-size:15px;color:var(--muted);margin-top:4px;line-height:1.35}
+.hero-sub i{display:block;font-size:13.5px}
+.kpi{font-family:var(--num);font-size:36px;font-weight:700;letter-spacing:-.02em;font-variant-numeric:tabular-nums;line-height:1.15;margin-top:2px}
+.goal-top{display:flex;justify-content:space-between;align-items:baseline;gap:10px;font-size:15px;color:var(--muted)}
+.goal-top b{font-family:var(--num);font-size:22px;color:var(--ink);font-variant-numeric:tabular-nums;white-space:nowrap}
+.goal-top small{font-size:14px;color:var(--muted);font-weight:500}
+.track{height:8px;border-radius:99px;background:var(--fill);overflow:hidden;margin:10px 0 8px}
+.track i{display:block;height:100%;background:var(--accent);border-radius:99px}
+.progress{display:flex;align-items:center;gap:12px;font-size:15px;font-weight:600;color:var(--muted);margin:0 4px -10px}
+.progress .track{flex:1;margin:0}
+ol.steps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px}
+ol.steps label{position:relative;display:grid;grid-template-columns:36px minmax(0,1fr) auto;gap:0 12px;align-items:center;background:var(--card);border-radius:14px;padding:14px;cursor:pointer;-webkit-tap-highlight-color:transparent}
+ol.steps input{position:absolute;opacity:0;width:1px;height:1px;pointer-events:none}
+.box{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;border:2px solid var(--accent);color:var(--accent);font-weight:700;font-size:16px;font-family:var(--num)}
+ol.steps input:focus-visible + .box{outline:3px solid var(--accent);outline-offset:3px}
+.st{font-weight:600;font-size:17px;line-height:1.25;min-width:0}
+.sd{display:block;font-weight:400;font-style:italic;font-size:13.5px;color:var(--muted);margin-top:3px;line-height:1.35}
+.sa{font-family:var(--num);font-weight:700;font-size:17px;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+.next label{box-shadow:0 0 0 2px var(--accent)}
+.pill{display:inline-block;margin-left:7px;padding:1px 7px;border-radius:99px;background:var(--accent);color:var(--accent-ink);font-size:11.5px;font-weight:700;vertical-align:2px}
+.done label,.skip label{background:transparent;box-shadow:0 0 0 1px var(--hair)}
+.done .box{background:var(--accent);color:var(--accent-ink);font-size:19px}
+.done .st,.done .sa{color:var(--muted);text-decoration:line-through;text-decoration-color:var(--faint)}
+.skip label{cursor:default}
+.skip .box{border-color:var(--faint);color:var(--faint)}
+.skip .st,.skip .sa{color:var(--muted)}
+.alldone{display:flex;gap:14px;align-items:center;background:var(--accent);color:var(--accent-ink);border-radius:14px;padding:16px;font-weight:700;font-size:18px}
+.alldone b{display:grid;place-items:center;width:38px;height:38px;flex:none;border-radius:50%;background:var(--accent-ink);color:var(--accent);font-size:22px}
+.alldone span{display:block;font-weight:400;font-style:italic;font-size:14px;margin-top:2px}
+details.more{background:var(--card);border-radius:12px}
+details.more summary{list-style:none;padding:13px 16px;cursor:pointer;display:flex;justify-content:space-between;color:var(--ink)}
+details.more summary::-webkit-details-marker{display:none}
+details.more summary::after{content:"›";color:var(--faint);font-size:20px;line-height:1;transform:rotate(90deg)}
+details.more[open] summary::after{transform:rotate(-90deg)}
+details.more ul{margin:0;padding:0 16px 12px;list-style:none;font-size:15px;color:var(--muted);display:flex;flex-direction:column;gap:6px}
+
+/* Budget + Grow */
+.split{display:flex;height:12px;border-radius:99px;overflow:hidden;background:var(--fill);margin:14px 0 12px}
+.split i{display:block;height:100%}
+.legend{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 18px}
+.legend div{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--muted);min-width:0}
+.legend b{margin-left:auto;color:var(--ink);font-variant-numeric:tabular-nums;font-weight:600}
+.dot{width:10px;height:10px;border-radius:3px;flex:none}
+.acc{color:var(--accent)}
+.lines{display:flex;gap:16px;font-size:13px;color:var(--muted);margin:14px 0 6px}
+.lines i{display:inline-block;width:14px;height:3px;border-radius:2px;vertical-align:middle;margin-right:6px}
+svg.chart{width:100%;height:auto;display:block}
+svg.chart text{font-family:var(--font);font-size:19px;fill:var(--muted)}
+table.plan{width:100%;border-collapse:collapse;table-layout:fixed;font-variant-numeric:tabular-nums;font-size:15px}
+table.plan th{font-size:12.5px;font-weight:500;color:var(--muted);text-align:right;padding:10px 0 6px}
+table.plan td{text-align:right;padding:9px 0;border-top:.5px solid var(--hair)}
+table.plan th:first-child,table.plan td:first-child{text-align:left}
+table.plan tr.now td{font-weight:700}
+table.plan tr.hit td{color:var(--accent);font-weight:600}
+.plan-card{background:var(--card);border-radius:12px;padding:0 16px 4px}
+.plan-card details summary{list-style:none;color:var(--accent);padding:12px 0;cursor:pointer;border-top:.5px solid var(--hair)}
+.plan-card details summary::-webkit-details-marker{display:none}
+
+@media (prefers-reduced-motion:no-preference){
+  .sw,.sw::after,.track i{transition:all .22s ease}
+  @keyframes pop{0%{transform:scale(.6)}60%{transform:scale(1.15)}100%{transform:scale(1)}}
+  .justdone .box,.alldone b{animation:pop .35s ease}
+}
+@media (max-width:360px){ .month-label{min-width:7.4em;font-size:16px} .large{font-size:30px} input.big{font-size:36px} }
+
+/* Mac: sidebar instead of tab bar */
+@media (min-width:900px){
+  .tabbar,.top{display:none}
+  .side{display:flex;flex-direction:column;gap:18px;position:fixed;top:0;bottom:0;left:0;width:252px;padding:28px 14px 22px;background:var(--side);border-right:.5px solid var(--hair)}
+  .main{margin-left:252px}
+  .brand{font-weight:700;font-size:19px;padding:0 10px}
+  .side .month{justify-content:space-between;background:var(--card);border-radius:10px;padding:2px}
+  .side .month-label{min-width:0;font-size:15px}
+  .side-nav{display:flex;flex-direction:column;gap:2px}
+  .side-nav button{appearance:none;border:0;background:none;display:flex;align-items:center;gap:12px;padding:9px 10px;border-radius:9px;font-size:15px;font-weight:500;cursor:pointer;color:var(--ink);text-align:left}
+  .side-nav svg{width:22px;height:22px;color:var(--muted)}
+  .side-nav button[aria-current="page"]{background:var(--accent-soft);color:var(--accent);font-weight:600}
+  .side-nav button[aria-current="page"] svg{color:var(--accent)}
+  .side .sync{margin-top:auto;padding:0 10px}
+  .view{padding-block:34px 70px}
+  svg.chart text{font-size:14px}
+}
+</style>
+</head>
+<body>
+<aside class="side" aria-label="Budget">
+  <div class="brand">Budget + Savings</div>
+  <div class="month" role="group" aria-label="Salary month">
+    <button type="button" data-act="prev" aria-label="Previous month">‹</button><span class="month-label">October 2026</span><button type="button" data-act="next" aria-label="Next month">›</button>
+  </div>
+  <nav class="side-nav" id="side-nav"></nav>
+  <button type="button" class="sync" data-view="sync" data-s="local" aria-label="Sync status and settings">Loading…</button>
+</aside>
+<div class="main">
+  <header class="top">
+    <div class="month" role="group" aria-label="Salary month">
+      <button type="button" data-act="prev" aria-label="Previous month">‹</button><span class="month-label">October 2026</span><button type="button" data-act="next" aria-label="Next month">›</button>
+    </div>
+    <button type="button" class="sync" data-view="sync" data-s="local" aria-label="Sync status and settings">Loading…</button>
+  </header>
+  <main class="view" id="view"></main>
+</div>
+<nav class="tabbar" id="tabbar" aria-label="Sections"></nav>
+
+<script>
+(() => {
+/* ---------- the budget, as in the workbook ---------- */
+// An empty starting budget. Your real one is loaded from your private GitHub repo.
+const DEFAULT_PLAN = {
+  v: 1,
+  salaryUsd: 0, usdPerAed: 0.2723, eurPerAed: 0.243, aedPerJpy: 0.024,
+  text: {},
+  fixed: [
+    {id:'health',  name:'Health insurance', amt:0, cur:'AED', from:'NBD',  auto:true},
+    {id:'billsa',  name:'Bills in EUR',             cur:'EUR', from:'ZABA', sum:'zg'},
+    {id:'rentjp',  name:'Rent',             amt:0, cur:'JPY', from:'REVO'},
+    {id:'billsb',  name:'Bills in JPY',             cur:'JPY', from:'REVO', sum:'jp', auto:true},
+    {id:'subs',    name:'Subscriptions',            cur:'AED', from:'SPLIT', sum:'subs', auto:true},
+    {id:'tickets', name:'Travel',           amt:0, cur:'AED', from:'REVO'},
+    {id:'mortdxb', name:'Home loan',        amt:0, cur:'AED', from:'NBD'}
+  ],
+  zg: [], jp: [], dxb: {internet:0, service:0, dewa:0},
+  subs: [], extras: [{id:'cc', name:'Credit card', amt:0, bank:'NBD'}],
+  hsbcFee: 0, spendRevo: 0, spendWio: 0,
+  wioSavings: 0, wioGoal: 30000, ibkrNow: 0,
+  etf: {ret:7, years:10, bonus:0, cur:'EUR'},
+  ideas: {}
+};
+// Words that name people and places live in your data (plan.text), not in this public code.
+const LABELS = {partner:'Partner', partnerNote:'', rentTo:'landlord', rentDue:'', billsA:'Bills in EUR', billsB:'Bills in JPY', home:'home', utility:'Utilities', subsNote:''};
+const T = () => ({...LABELS, ...(S.plan.text || {})});
+
+/* ---------- formatting (as you write it: 53.801 AED, 659,60 €) ---------- */
+const nf0 = new Intl.NumberFormat('de-DE',{maximumFractionDigits:0});
+const nf2 = new Intl.NumberFormat('de-DE',{minimumFractionDigits:2,maximumFractionDigits:2});
+const nfr = new Intl.NumberFormat('de-DE',{maximumFractionDigits:5});
+const r0 = n => nf0.format(Math.round(n) || 0);
+const aed = n => r0(n) + ' AED';
+const eur = n => nf2.format(n) + ' €';
+const jpy = n => '¥' + nf0.format(n);
+const usd = n => r0(n) + ' USD';
+const short = v => v >= 1e6 ? (v/1e6).toLocaleString('de-DE',{maximumFractionDigits:2}) + ' M' : v >= 1e3 ? Math.round(v/1e3) + 'k' : String(Math.round(v));
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const sum = a => a.reduce((t,x) => t + (+x.amt || 0), 0);
+const clone = o => JSON.parse(JSON.stringify(o));
+const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+const addMonths = (key,k) => { const [y,m] = key.split('-').map(Number); const d = new Date(y, m-1+k, 1); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0'); };
+const monthName = key => { const [y,m] = key.split('-').map(Number); return MONTHS[m-1] + ' ' + y; };
+const shortDate = key => { const [y,m] = key.split('-').map(Number); return '26/' + m + '/' + String(y).slice(2); };
+
+function parseNum(raw){
+  // accepts 12.500 / 12,500 / 12500 / 412,75 / 0,25 / 0.25
+  let s = String(raw).replace(/[^\d.,\-]/g,'');
+  if (!s || s === '-') return null;
+  const thousands = sep => { const g = s.split(sep); return g.length > 1 && g.slice(1).every(x => x.length === 3) && !/^-?0$/.test(g[0]) && g[0] !== ''; };
+  const hasDot = s.includes('.'), hasComma = s.includes(',');
+  if (hasDot && hasComma) s = s.lastIndexOf(',') > s.lastIndexOf('.') ? s.replace(/\./g,'').replace(',','.') : s.replace(/,/g,'');
+  else if (hasComma) s = thousands(',') ? s.replace(/,/g,'') : s.replace(/,/g,'.');
+  else if (hasDot && thousands('.')) s = s.replace(/\./g,'');
+  const n = parseFloat(s);
+  return isFinite(n) ? n : null;
+}
+
+/* ---------- state ---------- */
+const today = new Date();
+const thisKey = (() => { const d = today.getDate() >= 15 ? today : new Date(today.getFullYear(), today.getMonth()-1, 1); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0'); })();
+const S = { plan: clone(DEFAULT_PLAN), months: {}, key: thisKey, sync: 'local', copyText: '', view: 'today' };
+try { const v = (location.hash || '').slice(1) || localStorage.getItem('budget-savings-view'); if (['today','month','budget','grow','sync'].includes(v)) S.view = v; } catch(e) {}
+
+function mergePlan(stored){
+  const p = clone(DEFAULT_PLAN);
+  if (!stored || typeof stored !== 'object') return p;
+  for (const k of Object.keys(stored)) {
+    const v = stored[k];
+    if (v && typeof v === 'object' && !Array.isArray(v) && p[k] && typeof p[k] === 'object' && !Array.isArray(p[k])) p[k] = {...p[k], ...clone(v)};
+    else p[k] = clone(v);
+  }
+  return p;
+}
+try { const c = JSON.parse(localStorage.getItem('budget-savings-cache') || 'null'); if (c) { S.plan = mergePlan(c.plan); S.months = c.months || {}; } } catch(e) {}
+function cache(){ try { localStorage.setItem('budget-savings-cache', JSON.stringify({plan:S.plan, months:S.months})); } catch(e) {} }
+
+/* ---------- the arithmetic ---------- */
+function compute(p, m, wioStart){
+  m = m || {};
+  const paid = m.paid || {}, ex = m.ex || {};
+  const income = p.salaryUsd / p.usdPerAed;            // the usual month, for the plan
+  const salaryUsd = m.salaryUsd != null ? m.salaryUsd : p.salaryUsd;
+  const incomeMonth = salaryUsd / p.usdPerAed;          // what actually lands this month
+  const zgEur = sum(p.zg), jpYen = sum(p.jp);
+  const subsNbd = sum(p.subs.filter(s => s.bank === 'NBD')), subsRevo = sum(p.subs.filter(s => s.bank !== 'NBD'));
+  const rows = p.fixed.map(f => {
+    let orig = null, a;
+    if (f.sum === 'zg') { orig = zgEur; a = zgEur / p.eurPerAed; }
+    else if (f.sum === 'jp') { orig = jpYen; a = jpYen * p.aedPerJpy; }
+    else if (f.sum === 'subs') { a = subsNbd + subsRevo; }
+    else if (f.cur === 'JPY') { orig = +f.amt || 0; a = orig * p.aedPerJpy; }
+    else if (f.cur === 'EUR') { orig = +f.amt || 0; a = orig / p.eurPerAed; }
+    else a = +f.amt || 0;
+    const eurOut = (f.from === 'ZABA' || f.eur) ? (f.cur === 'EUR' ? orig : a * p.eurPerAed) : null;
+    return {...f, aed:a, orig, eurOut, paid:!!paid[f.id]};
+  });
+  const row = id => rows.find(r => r.id === id);
+  const fixedTotal = rows.reduce((t,r) => t + r.aed, 0);
+  const extras = p.extras.map(e => ({...e, plan:+e.amt || 0, now: ex[e.id] != null ? ex[e.id] : (+e.amt || 0)}));
+  const extrasPlan = extras.reduce((t,e) => t + e.plan, 0);
+  const remaining = income - fixedTotal - extrasPlan - p.hsbcFee;
+  const living = p.spendRevo + p.spendWio;
+  const save = remaining - living;
+
+  // what has to go where this month
+  const nbdParts = [], revoParts = [], zabaParts = [];
+  let nbd = 0, revo = 0, zaba = 0;
+  for (const r of rows) {
+    if (r.paid) continue;
+    if (r.from === 'NBD') { nbd += r.aed; nbdParts.push([r.name, r.aed]); }
+    else if (r.from === 'REVO') { revo += r.aed; revoParts.push([r.name, r.aed]); }
+    else if (r.from === 'ZABA') { revo += r.aed; zaba += r.eurOut; zabaParts.push([r.name, r.eurOut]); revoParts.push([r.name + ' (→ ZABA)', r.aed]); }
+    else if (r.from === 'SPLIT') { if (subsNbd) { nbd += subsNbd; nbdParts.push(['Subscriptions', subsNbd]); } if (subsRevo) { revo += subsRevo; revoParts.push(['Subscriptions', subsRevo]); } }
+  }
+  let wioOut = 0;
+  for (const e of extras) {
+    if (!e.now) continue;
+    if (e.bank === 'NBD') { nbd += e.now; nbdParts.push([e.name, e.now]); }
+    else if (e.bank === 'REVO') { revo += e.now; revoParts.push([e.name, e.now]); }
+    else wioOut += e.now;
+  }
+  // one-offs typed in for this month only
+  const oneoffs = (m.oneoffs || []).filter(o => +o.amt);
+  let wioOneoffs = 0;
+  for (const o of oneoffs) {
+    const v = +o.amt, nm = o.name || 'One-off';
+    if (o.bank === 'NBD') { nbd += v; nbdParts.push([nm, v]); }
+    else if (o.bank === 'REVO') { revo += v; revoParts.push([nm, v]); }
+    else { wioOut += v; wioOneoffs += v; }
+  }
+  // a bigger service-fee bill than usual at home: the extra comes from salary, the partner's share stays the same
+  const serviceDxb = m.serviceDxb != null ? m.serviceDxb : p.dxb.service;
+  const mortRow = row('mortdxb');
+  const serviceExtra = mortRow && !mortRow.paid ? serviceDxb - p.dxb.service : 0;
+  if (serviceExtra) { nbd += serviceExtra; nbdParts.push(['Service fee extra', serviceExtra]); }
+  revo += p.spendRevo; revoParts.push(['Spending money', p.spendRevo]);
+  const extraNbd = +m.extraNbd || 0, extraRevo = +m.extraRevo || 0;
+  const nbdNeed = nbd - extraNbd, revoNeed = revo - extraRevo;
+  const nbdSend = nbdNeed > 0 ? Math.ceil(nbdNeed) : 0;
+  const hsbcSend = revoNeed > 0 ? Math.ceil(revoNeed + p.hsbcFee) : 0;
+  const dewaDxb = m.dewaDxb != null ? m.dewaDxb : p.dxb.dewa;
+  const mort = row('mortdxb');
+  const toPartner = mort && !mort.paid ? mort.aed - p.dxb.internet - p.dxb.service - dewaDxb : 0;
+
+  const start = wioStart != null ? wioStart : p.wioSavings;
+  let wioAfter = start + incomeMonth - nbdSend - hsbcSend - wioOut;
+  let wioSav = wioAfter - p.spendWio;
+  // savings over the WIO goal ride along to Revo for IBKR
+  let toIbkr = 0, hsbcTotal = hsbcSend;
+  if (wioSav > p.wioGoal) {
+    toIbkr = Math.floor(wioSav - p.wioGoal);
+    hsbcTotal = hsbcSend > 0 ? hsbcSend + toIbkr : Math.ceil(toIbkr + p.hsbcFee);
+    if (hsbcSend === 0) toIbkr = Math.max(0, hsbcTotal - p.hsbcFee);
+    wioAfter -= (hsbcTotal - hsbcSend); wioSav = wioAfter - p.spendWio;
+  }
+  const saveThis = wioSav - start + toIbkr;
+  return {income, rows, row, fixedTotal, extras, extrasPlan, remaining, living, save, subsNbd, subsRevo, zgEur, jpYen,
+    nbdParts, revoParts, zabaParts, nbdNeed, revoNeed, nbdSend, hsbcSend, hsbcTotal, zaba, toPartner, dewaDxb,
+    extraNbd, extraRevo, start, wioAfter, wioSav, toIbkr, saveThis, wioOut, paid, oneoffs, wioOneoffs, serviceDxb, serviceExtra, salaryUsd, incomeMonth};
+}
+
+// WIO savings at the start of a month: typed in, or carried on from earlier months
+function wioStart(key, depth = 0){
+  const m = S.months[key];
+  if (m && m.wioNow != null) return m.wioNow;
+  if (depth > 24) return S.plan.wioSavings;
+  let back = null;
+  for (let k = 1; k <= 24 - depth; k++) { if (S.months[addMonths(key,-k)]) { back = k; break; } }
+  if (back == null) return S.plan.wioSavings;
+  const prev = addMonths(key, -1);
+  return Math.min(compute(S.plan, S.months[prev], wioStart(prev, depth + 1)).wioSav, S.plan.wioGoal);
+}
+
+function ideasList(p){
+  const L = [{id:'living', name:'Living spend (REVO + WIO)', now:p.spendRevo + p.spendWio}];
+  const cc = p.extras.find(e => e.id === 'cc'); if (cc) L.push({id:'cc', name:'Credit card', now:+cc.amt || 0});
+  const t = p.fixed.find(f => f.id === 'tickets'); if (t) L.push({id:'tickets', name:t.name, now:+t.amt || 0});
+  L.push({id:'hsbc', name:'HSBC hop fee', now:p.hsbcFee});
+  p.subs.forEach(s => { if (+s.amt > 0) L.push({id:'sub:' + s.id, name:s.name, now:+s.amt, sub:true}); });
+  return L.map(x => { const st = p.ideas[x.id] || {}; const target = st.target != null ? st.target : (x.sub ? 0 : x.now);
+    return {...x, target, on:!!st.on, saves:Math.max(0, x.now - target)}; });
+}
+
+const mRate = p => Math.pow(1 + p.etf.ret/100, 1/12) - 1;
+// IBKR figures in the currency the account is in; everything is worked out in AED underneath
+function etfMoney(p){
+  const c = p.etf.cur || 'AED';
+  const r = c === 'EUR' ? p.eurPerAed : c === 'USD' ? p.usdPerAed : 1;
+  const sym = c === 'EUR' ? ' €' : ' ' + c;
+  return {c, r, sym, f:n => r0(n * r) + sym, s:n => short(n * r)};
+}
+const fv = (m, n, i) => i ? m * (Math.pow(1+i, n) - 1) / i : m * n;
+
+function project(p, key, R, extra, months){
+  const i = mRate(p), N = compute(p, {}, 0);
+  let wio = R.wioSav, ibkr = (+p.ibkrNow || 0) + R.toIbkr, put = ibkr;
+  const rows = [{key, saved:R.saveThis, wio, to:R.toIbkr, ibkr, put}];
+  for (let k = 1; k <= months; k++) {
+    const mk = addMonths(key, k);
+    const bonus = mk.endsWith('-07') ? (+p.etf.bonus || 0) / p.usdPerAed : 0;   // typed in USD
+    const s = N.save + extra + bonus;
+    ibkr *= (1 + i);
+    let to = 0;
+    if (s < 0) wio += s;
+    else { const toW = Math.max(0, Math.min(s, p.wioGoal - wio)); wio += toW; to = s - toW; }
+    ibkr += to; put += to;
+    rows.push({key:mk, saved:s, wio, to, ibkr, put, bonus});
+  }
+  return rows;
+}
+
+/* ---------- building blocks ---------- */
+const idOf = k => 'i-' + k.replace(/[^\w]/g,'-');
+function num(k, val, o = {}){
+  const v = val == null || val === '' ? null : (o.scale ? val * o.scale : val);
+  const shown = v == null ? '' : (o.dec ? nfr.format(v) : o.d2 ? nf2.format(v) : nf0.format(v));
+  // size="1" stops Safari widening rows to an input's default width; the big salary box sizes to its digits
+  const size = o.cls === 'big' ? Math.max(4, (shown || String(o.ph || '')).length) : 1;
+  return `<input class="${o.cls || 'val'}" size="${size}" id="${idOf(k)}" data-k="${k}" data-num inputmode="decimal" enterkeyhint="done"${o.empty ? ' data-empty' : ''}${o.scale ? ` data-scale="${o.scale}"` : ''} value="${esc(shown)}"${o.ph != null ? ` placeholder="${esc(o.ph)}"` : ''} aria-label="${esc(o.label || k)}" autocomplete="off">`;
+}
+const txt = (k, val, o = {}) => `<input class="txt" size="1" id="${idOf(k)}" data-k="${k}" enterkeyhint="done" value="${esc(val || '')}"${o.ph ? ` placeholder="${esc(o.ph)}"` : ''} aria-label="${esc(o.label || k)}" autocomplete="off">`;
+const chip = (k, v, opts = ['NBD','REVO','WIO']) => `<button type="button" class="chip" data-act="cycle" data-k="${k}" data-opts="${opts.join(',')}" aria-label="Paid from ${esc(v)}. Tap to change">${esc(v)}</button>`;
+const seg = (k, v, opts, label) => `<div class="seg" role="group" aria-label="${esc(label)}">${opts.map(o => `<button type="button" data-act="seg" data-k="${k}" data-v="${o}" aria-pressed="${o === v}">${o}</button>`).join('')}</div>`;
+const sw = (k, on, label) => `<input type="checkbox" class="sw" id="${idOf(k)}" data-k="${k}"${on ? ' checked' : ''} aria-label="${esc(label)}">`;
+const del = (act, i, name) => `<button type="button" class="del" data-act="${act}" data-i="${i}" aria-label="Remove ${esc(name)}">×</button>`;
+function row(label, value, o = {}){
+  const tag = o.tag || 'div';
+  return `<${tag} class="row ${o.cls || ''}"><span class="lab">${label}${o.cap ? `<span class="cap">${o.cap}</span>` : ''}</span>${value != null ? `<span class="v"><span class="vl">${value}${o.unit ? `<span class="unit">${o.unit}</span>` : ''}</span>${o.sub ? `<span class="vsub">${o.sub}</span>` : ''}</span>` : ''}${o.end || ''}</${tag}>`;
+}
+const group = (title, rows, foot) => `<section class="group">${title ? `<h2 class="g-title">${title}</h2>` : ''}<div class="list">${rows}</div>${foot ? `<p class="g-foot">${foot}</p>` : ''}</section>`;
+const link = (act, text) => `<button type="button" class="row link" data-act="${act}">${text}</button>`;
+const fromText = r => r.from === 'SPLIT' ? 'Revo and NBD, automatic' : r.from === 'ZABA' ? 'Revo → ZABA in EUR'
+  : r.from === 'NBD' ? (r.auto ? 'NBD, automatic' : 'NBD') : r.auto ? 'Revo, automatic' : r.id === 'rentjp' ? 'Revo → ' + T().rentTo : r.eur ? 'Revo, sent in EUR' : 'Revo';
+
+const ICONS = {
+  today:'<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8 12.4l2.7 2.7L16.2 9.4"/></svg>',
+  month:'<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="2.6"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>',
+  budget:'<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="18" height="13.5" rx="2.6"/><path d="M3 10.5h18M15.5 15h2.5"/></svg>',
+  grow:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17.5l5.2-5.2 3.8 3 7-7.8"/><path d="M15 7.5h5v5"/></svg>'
+};
+const VIEWS = [['today','Today','Salary day'],['month','Month','This month'],['budget','Budget','Budget'],['grow','Grow','Grow']];
+
+/* ---------- Today: salary in, then the steps ---------- */
+function viewToday(p, R, key){
+  const m = S.months[key] || {}, done = m.done || {};
+  const steps = stepsFor(p, R, m);
+  const live = steps.filter(s => !s.skip), nDone = live.filter(s => done[s.id]).length, next = live.find(s => !done[s.id]);
+  const goalPct = Math.max(0, Math.min(100, R.wioSav / p.wioGoal * 100));
+  const autos = [];
+  for (const r of R.rows) if (r.auto && !r.paid) autos.push(r.sum === 'subs' ? `Subscriptions: ${r0(R.subsRevo)} Revo + ${r0(R.subsNbd)} NBD` : `${r.name} ${r0(r.aed)} (${r.from === 'NBD' ? 'NBD' : 'Revo'})`);
+  const tk = R.row('tickets'); if (tk && !tk.paid) autos.push(`${tk.name} ${r0(tk.aed)} stays in Revo`);
+  autos.push(`Spending money: ${r0(p.spendRevo)} Revo + ${r0(p.spendWio)} WIO`);
+  const cc = R.extras.find(e => e.id === 'cc'); if (cc && cc.now) autos.push(`Credit card ${r0(cc.now)} from NBD`);
+  const diff = R.salaryUsd - p.salaryUsd;
+
+  S.copyText = [
+    `Budget + Savings — ${monthName(key)}`,
+    `Salary ${usd(R.salaryUsd)} = ${aed(R.incomeMonth)}`,
+    ...steps.map((s,i) => `${i+1}. ${s.t}${s.a ? ': ' + s.a : ''}${done[s.id] ? ' ✓' : ''}`),
+    `Already paid: ${R.rows.filter(r => r.paid).map(r => r.name).join(', ') || 'nothing'}. Extra in Revo ${r0(R.extraRevo)}, in NBD ${r0(R.extraNbd)}.`,
+    R.oneoffs.length ? `Unexpected costs: ${R.oneoffs.map(o => `${o.name || 'Cost'} ${r0(o.amt)} (${o.bank})`).join(', ')}` : '',
+    `WIO savings before salary ${aed(R.start)}, after ${aed(R.wioSav)}. Saved this month ${aed(R.saveThis)}.`,
+    m.note ? `Note: ${m.note}` : ''
+  ].filter(Boolean).join('\n');
+
+  return `
+  <div class="card">
+    <label class="hero-l" for="${idOf('m.salaryUsd')}">Salary this month</label>
+    <div class="hero-in">${num('m.salaryUsd', m.salaryUsd, {cls:'big', empty:true, ph:r0(p.salaryUsd), label:'Salary this month in USD'})}<span>USD</span></div>
+    <p class="hero-sub">= ${aed(R.incomeMonth)}<i>${diff ? `${diff > 0 ? '+' : '−'}${usd(Math.abs(diff))} compared with the usual ${r0(p.salaryUsd)}` : 'The usual amount. Tap the number if this month is different.'}</i></p>
+  </div>
+
+  <div class="card">
+    <div class="goal-top"><span>WIO savings after salary</span><b>${r0(R.wioSav)} <small>/ ${r0(p.wioGoal)} AED</small></b></div>
+    <div class="track" aria-hidden="true"><i style="width:${goalPct}%"></i></div>
+    <p class="cap">${aed(R.saveThis)} saved this month. A normal month saves ${aed(R.save)}.${p.wioGoal - R.wioSav > 0 ? ` ${aed(p.wioGoal - R.wioSav)} to go.` : ' Goal reached.'}</p>
+  </div>
+
+  ${live.length && nDone === live.length ? `<div class="alldone"><b aria-hidden="true">✓</b><div>All done for ${MONTHS[+key.slice(5) - 1]}<span>${aed(R.wioSav)} saved in WIO${R.toIbkr ? ` and ${aed(R.toIbkr)} on its way to IBKR` : ''}. Nothing else to move.</span></div></div>` : ''}
+  <div class="progress"><span>${nDone} of ${live.length} done</span><div class="track" aria-hidden="true"><i style="width:${live.length ? nDone / live.length * 100 : 0}%"></i></div></div>
+  <ol class="steps">
+    ${steps.map((s,i) => { const d = !!done[s.id];
+      const cls = [d ? 'done' : '', s.skip ? 'skip' : '', s === next ? 'next' : '', S.justDone === s.id ? 'justdone' : ''].join(' ').trim();
+      return `<li class="${cls}"><label>${s.skip ? '' : `<input type="checkbox" id="${idOf('m.done.' + s.id)}" data-k="m.done.${s.id}"${d ? ' checked' : ''} aria-label="Done: ${esc(s.t)}">`}<span class="box" aria-hidden="true">${d ? '✓' : s.skip ? '–' : i + 1}</span><span class="st">${esc(s.t)}${s === next ? '<span class="pill">Next</span>' : ''}${s.d ? `<span class="sd">${esc(s.d)}</span>` : ''}</span><span class="sa">${s.a ? esc(s.a) : ''}</span></label></li>`; }).join('')}
+  </ol>
+  <details class="more"><summary>Nothing to do for these</summary><ul>${autos.map(a => `<li>${esc(a)}</li>`).join('')}</ul></details>
+  <div><button type="button" class="btn-plain" data-act="copy">Copy this month as text</button><div id="copybox"></div></div>`;
+}
+
+/* ---------- Month: what changed before salary ---------- */
+function viewMonth(p, R, key){
+  const m = S.months[key] || {};
+  const cc = p.extras.find(e => e.id === 'cc');
+  const rent = R.row('rentjp');
+  const t = T(), mortAmt = (R.row('mortdxb') || {}).aed || 0;
+  const before = [
+    row('WIO savings right now', num('m.wioNow', m.wioNow, {empty:true, ph:r0(R.start), label:'WIO savings right now'}), {tag:'label', unit:'AED'}),
+    row('Extra money already in Revo', num('m.extraRevo', m.extraRevo, {empty:true, ph:'0', label:'Extra money already in Revo'}), {tag:'label', unit:'AED'}),
+    row('Extra money already in NBD', num('m.extraNbd', m.extraNbd, {empty:true, ph:'0', label:'Extra money already in NBD'}), {tag:'label', unit:'AED'}),
+    cc ? row('Credit card bill', num('m.ex.cc', (m.ex || {}).cc, {empty:true, ph:r0(cc.amt), label:'Credit card this month'}), {tag:'label', unit:'AED'}) : '',
+    row(esc(`${t.utility} ${t.home}`), num('m.dewaDxb', m.dewaDxb, {empty:true, ph:r0(p.dxb.dewa), label:t.utility + ' this month'}), {tag:'label', unit:'AED', cap:esc(`Paid from the ${r0(mortAmt)}; changes what ${t.partner} gets`)}),
+    row(esc(`Service fee ${t.home}`), num('m.serviceDxb', m.serviceDxb, {empty:true, ph:r0(p.dxb.service), label:'Service fee this month'}), {tag:'label', unit:'AED',
+      cap: R.serviceExtra > 0 ? `${aed(R.serviceExtra)} over the usual ${r0(p.dxb.service)} comes from this salary` : `Usually ${r0(p.dxb.service)}`})
+  ].join('');
+  const paid = R.rows.filter(r => !r.auto).map(r => row(esc(r.name), null, {tag:'label', cap:fromText(r), end:sw('m.paid.' + r.id, r.paid, 'Already paid: ' + r.name)})).join('');
+  const oo = (m.oneoffs || []).map((o,i) => row(txt(`m.oneoffs.${i}.name`, o.name, {ph:'What was it?', label:'Unexpected cost'}),
+      num(`m.oneoffs.${i}.amt`, o.amt, {label:'Amount in AED'}), {unit:'AED', end:chip(`m.oneoffs.${i}.bank`, o.bank) + del('del-oneoff', i, o.name || 'cost')})).join('');
+  const eurRevo = R.rows.filter(r => r.from === 'REVO' && r.eur && !r.paid);
+  const transfers = [
+    row('WIO → NBD', aed(R.nbdSend), {cap:R.nbdParts.map(([n]) => n).join(', ') + (R.extraNbd ? `, less ${r0(R.extraNbd)} already there` : '')}),
+    row('WIO → HSBC → Revo', aed(R.hsbcTotal), {cap:`About ${r0(p.hsbcFee)} fee on the way${R.extraRevo ? `, less ${r0(R.extraRevo)} already in Revo` : ''}`}),
+    R.zaba > 0 ? row('Revo → ZABA', eur(R.zaba), {cap:R.zabaParts.map(([n]) => n).join(', ')}) : '',
+    ...eurRevo.map(r => row(`Revo → ${esc(r.name)}`, eur(r.eurOut), {cap:'Sent in EUR'})),
+    rent ? row(esc(`Revo → ${t.rentTo}`), rent.paid ? '<span class="acc">Paid</span>' : jpy(rent.orig), {cap:esc(rent.name)}) : '',
+    row(esc(`NBD → ${t.partner}`), aed(R.toPartner), {cap:esc(`${r0(mortAmt)} less internet, service fee ${r0(p.dxb.service)} and ${t.utility}`)}),
+    R.toIbkr ? row('Revo → IBKR', aed(R.toIbkr), {cap:'Savings over the WIO goal'}) : '',
+    row('Stays in WIO', aed(R.wioAfter), {cls:'total', cap:`${r0(p.spendWio)} to spend, ${r0(R.wioSav)} savings`})
+  ].join('');
+  return `
+  ${group('Before salary', before, 'Leave a box empty to use the usual amount, shown in grey.')}
+  ${group('Already paid this month', paid)}
+  ${group('Unexpected costs', oo + link('add-oneoff', 'Add an unexpected cost'), 'A repair, a gift or a fine. Tap the bank to switch between NBD, Revo and WIO; that transfer grows by the amount.')}
+  ${group('Where the money goes', transfers)}
+  ${group('Note', row(txt('m.note', m.note, {ph:'What you did before salary', label:'Note for this month'}), null, {tag:'label'}))}`;
+}
+
+/* ---------- Budget: the usual month ---------- */
+function viewBudget(p, R){
+  const pct = v => R.income ? Math.max(0, v / R.income * 100) : 0;
+  const extraT = R.extrasPlan + p.hsbcFee;
+  const DEF = ['cc'], t = T();
+  const fixed = R.rows.map((r,i) => {
+    const k = `p.fixed.${i}.amt`;
+    let val, unit, sub = '';
+    if (r.sum === 'zg') { val = nf2.format(r.orig); unit = '€'; sub = `≈ ${aed(r.aed)} · ${esc(t.billsA)} below`; }
+    else if (r.sum === 'jp') { val = nf0.format(r.orig); unit = '¥'; sub = `≈ ${aed(r.aed)} · ${esc(t.billsB)} below`; }
+    else if (r.sum === 'subs') { val = r0(r.aed); unit = 'AED'; sub = 'Subscriptions below'; }
+    else if (r.cur === 'JPY') { val = num(k, r.amt, {label:r.name + ' in yen'}); unit = '¥'; sub = `≈ ${aed(r.aed)}`; }
+    else if (r.cur === 'EUR') { val = num(k, r.amt, {d2:true, label:r.name + ' in euro'}); unit = '€'; sub = `≈ ${aed(r.aed)}`; }
+    else { val = num(k, r.amt, {label:r.name + ' in AED'}); unit = 'AED'; if (r.eurOut != null) sub = `≈ ${eur(r.eurOut)}`; }
+    return row(esc(r.name), val, {tag:r.sum ? 'div' : 'label', cap:fromText(r), unit, sub});
+  }).join('') + row('Total', r0(R.fixedTotal), {cls:'total', unit:'AED'});
+  const extras = p.extras.map((e,i) => DEF.includes(e.id)
+      ? row(esc(e.name), num(`p.extras.${i}.amt`, e.amt, {label:e.name}), {tag:'label', unit:'AED', end:chip(`p.extras.${i}.bank`, e.bank)})
+      : row(txt(`p.extras.${i}.name`, e.name, {label:'Cost name'}), num(`p.extras.${i}.amt`, e.amt, {label:e.name}), {unit:'AED', end:chip(`p.extras.${i}.bank`, e.bank) + del('del-extra', i, e.name)})).join('')
+    + row('HSBC → Revo fee', num('p.hsbcFee', p.hsbcFee, {label:'HSBC to Revo fee'}), {tag:'label', unit:'AED', end:'<span class="chip" aria-hidden="true" style="visibility:hidden">WIO</span>'})
+    + link('add-extra', 'Add a monthly cost');
+  const subs = p.subs.map((s,i) => row(txt(`p.subs.${i}.name`, s.name, {label:'Subscription name'}), num(`p.subs.${i}.amt`, s.amt, {label:s.name}), {unit:'AED', end:chip(`p.subs.${i}.bank`, s.bank, ['NBD','REVO']) + del('del-sub', i, s.name)})).join('')
+    + row('Total', r0(R.subsNbd + R.subsRevo), {cls:'total', unit:'AED', cap:`NBD ${r0(R.subsNbd)} · Revo ${r0(R.subsRevo)}`}) + link('add-sub', 'Add a subscription');
+  const mort = R.row('mortdxb');
+  return `
+  <div class="card">
+    <div class="hero-l">A normal month</div>
+    <div class="kpi">${aed(R.income)}</div>
+    <div class="split" aria-hidden="true">
+      <i style="width:${pct(R.fixedTotal)}%;background:var(--ink);opacity:.82"></i><i style="width:${pct(extraT)}%;background:var(--ink);opacity:.5"></i><i style="width:${pct(R.living)}%;background:var(--ink);opacity:.24"></i><i style="width:${pct(R.save)}%;background:var(--accent)"></i>
+    </div>
+    <div class="legend">
+      <div><span class="dot" style="background:var(--ink);opacity:.82"></span>Fixed<b>${r0(R.fixedTotal)}</b></div>
+      <div><span class="dot" style="background:var(--ink);opacity:.5"></span>Extra<b>${r0(extraT)}</b></div>
+      <div><span class="dot" style="background:var(--ink);opacity:.24"></span>Living<b>${r0(R.living)}</b></div>
+      <div><span class="dot" style="background:var(--accent)"></span>Saved<b class="acc">${r0(R.save)}</b></div>
+    </div>
+  </div>
+  ${group('Income', row('Usual salary', num('p.salaryUsd', p.salaryUsd, {label:'Usual salary in USD'}), {tag:'label', unit:'USD', sub:`= ${aed(R.income)}`}), 'Change this only if your base pay changes. Each month’s real salary goes on Today.')}
+  ${group('Fixed costs', fixed)}
+  ${group('Extra costs', extras, 'Tap the bank to change where a cost is paid from.')}
+  ${group('Spending money', row('Keep in WIO', num('p.spendWio', p.spendWio, {label:'Spending money kept in WIO'}), {tag:'label', unit:'AED'}) + row('Send to Revo', num('p.spendRevo', p.spendRevo, {label:'Spending money sent to Revo'}), {tag:'label', unit:'AED'}))}
+  ${group(esc(t.billsA), p.zg.map((z,i) => row(esc(z.name), num(`p.zg.${i}.amt`, z.amt, {d2:true, label:z.name + ', euro'}), {tag:'label', unit:'€', cap:z.note && z.note !== 'N/A' && z.note !== 'No Idea' ? esc(z.note) : ''})).join('') + row('Total', nf2.format(R.zgEur), {cls:'total', unit:'€', sub:`≈ ${aed(R.zgEur / p.eurPerAed)}`}))}
+  ${group(esc(t.billsB), p.jp.map((z,i) => row(esc(z.name[0].toUpperCase() + z.name.slice(1)), num(`p.jp.${i}.amt`, z.amt, {label:z.name + ', yen'}), {tag:'label', unit:'¥'})).join('') + row('Total', nf0.format(R.jpYen), {cls:'total', unit:'¥', sub:`≈ ${aed(R.jpYen * p.aedPerJpy)}`}))}
+  ${group(esc(`${t.home[0].toUpperCase() + t.home.slice(1)}, from the loan money on NBD`), row(esc(mort ? mort.name : 'Loan'), r0(mort ? mort.aed : 0), {unit:'AED'})
+      + row('Internet', num('p.dxb.internet', p.dxb.internet, {label:'Internet at home'}), {tag:'label', unit:'AED'})
+      + row('Service fee', num('p.dxb.service', p.dxb.service, {label:'Service fee at home'}), {tag:'label', unit:'AED'})
+      + row(esc(`${t.utility}, usual`), num('p.dxb.dewa', p.dxb.dewa, {label:'Usual utilities'}), {tag:'label', unit:'AED'})
+      + row(esc(`To ${t.partner}`), r0((mort ? mort.aed : 0) - p.dxb.internet - p.dxb.service - p.dxb.dewa), {cls:'total', unit:'AED'}))}
+  ${group('Subscriptions', subs, esc(t.subsNote))}
+  ${group('Exchange rates', row('1 AED in USD', num('p.usdPerAed', p.usdPerAed, {dec:true, label:'USD per AED'}), {tag:'label'})
+      + row('1 AED in EUR', num('p.eurPerAed', p.eurPerAed, {dec:true, label:'EUR per AED'}), {tag:'label'})
+      + row('1 yen in AED', num('p.aedPerJpy', p.aedPerJpy, {dec:true, label:'AED per yen'}), {tag:'label'}), 'Typed in by you. The page cannot look up live rates.')}`;
+}
+
+/* ---------- Grow: possible savings, ETF, savings plan ---------- */
+function viewGrow(p, R, key){
+  const M = etfMoney(p), i = mRate(p), n = p.etf.years * 12;
+  const L = ideasList(p), extra = L.filter(x => x.on).reduce((t,x) => t + x.saves, 0);
+  const A = project(p, key, R, 0, n), B = project(p, key, R, extra, n);
+  const endA = A[A.length-1], endB = B[B.length-1];
+  const hit = A.find(r => r.wio >= p.wioGoal - 0.5);
+  const marks = [1,3,5,10,15,20,25,30].filter(y => y <= p.etf.years);
+  if (!marks.includes(p.etf.years)) marks.push(p.etf.years);
+  const second = v => M.c === 'AED' ? usd(v * p.usdPerAed) : aed(v);
+  const unitC = M.c === 'EUR' ? '€' : M.c;
+  const ideas = L.map(x => row(esc(x.name), x.saves ? `−${r0(x.saves)}` : '–', {unit:x.saves ? '/mo' : '',
+      cap:`Now ${r0(x.now)} → ${num('p.ideas.' + x.id + '.target', x.target, {cls:'mini', label:'Target for ' + x.name})}${x.sub ? ' (cancel)' : ''}`,
+      end:sw(`p.ideas.${x.id}.on`, x.on, 'Count ' + x.name)})).join('');
+  const plan = project(p, key, R, 0, 24);
+  const hitIdx = plan.findIndex(r => r.wio >= p.wioGoal - 0.5);
+  const tr = (r,k) => `<tr class="${k === 0 ? 'now' : ''}${k === hitIdx && k ? ' hit' : ''}"><td>${MONTHS[+r.key.slice(5) - 1].slice(0,3)} ${r.key.slice(2,4)}${r.bonus ? ' +bonus' : ''}</td><td>${r0(r.saved)}</td><td>${r0(r.wio)}</td><td>${r.ibkr ? r0(r.ibkr * M.r) : '–'}</td></tr>`;
+  const head = `<colgroup><col style="width:28%"><col><col><col></colgroup>`;
+  return `
+  <div class="card">
+    <div class="hero-l">IBKR in ${p.etf.years} years</div>
+    <div class="kpi">${M.f(endA.ibkr)}</div>
+    <p class="hero-sub">${second(endA.ibkr)} · you put in ${M.s(endA.put)}${extra ? ` · <b class="acc">+${M.s(endB.ibkr - endA.ibkr)}</b> with ticked ideas` : ''}</p>
+    ${extra ? `<div class="lines"><span><i style="background:var(--muted)"></i>Current plan</span><span><i style="background:var(--accent)"></i>With ideas</span></div>` : '<div style="height:12px"></div>'}
+    ${chart(A, extra ? B : null, M)}
+  </div>
+  ${group('ETF settings',
+      row('Account currency', null, {end:seg('p.etf.cur', M.c, ['EUR','USD','AED'], 'IBKR account currency')})
+    + row('IBKR now', num('p.ibkrNow', p.ibkrNow, {scale:M.r, label:'IBKR balance now in ' + M.c}), {tag:'label', unit:unitC})
+    + row('Return a year', num('p.etf.ret', p.etf.ret, {dec:true, label:'Assumed yearly return, percent'}), {tag:'label', unit:'%'})
+    + row('Years', null, {end:`<div class="stepper"><button type="button" data-act="years" data-d="-1" aria-label="Fewer years">−</button><b>${p.etf.years}</b><button type="button" data-act="years" data-d="1" aria-label="More years">+</button></div>`})
+    + row('Bonus each July', num('p.etf.bonus', p.etf.bonus, {label:'Yearly bonus in USD'}), {tag:'label', unit:'USD', sub:+p.etf.bonus ? `= ${aed(p.etf.bonus / p.usdPerAed)}` : ''})
+    + row('WIO savings goal', num('p.wioGoal', p.wioGoal, {label:'WIO savings goal'}), {tag:'label', unit:'AED'}),
+    `${hit ? `WIO reaches the goal in ${monthName(hit.key)}; after that every saved dirham goes to IBKR.` : `WIO does not reach the goal within ${p.etf.years} years.`} Assumes ${nfr.format(p.etf.ret)}% a year after fees, every year. Markets go up and down, so this is arithmetic, not a forecast.`)}
+  ${group('Milestones', marks.map(y => { const a = A[Math.min(y*12, A.length-1)], b = B[Math.min(y*12, B.length-1)];
+      return row(`${y} year${y > 1 ? 's' : ''}`, M.f(a.ibkr), {cap:`${monthName(a.key)} · put in ${M.s(a.put)}`, sub:extra ? `${M.f(b.ibkr)} with ideas` : ''}); }).join(''))}
+  ${group('Possible savings', ideas, extra ? `Ticked ideas free up ${aed(extra)} a month (${aed(extra * 12)} a year). Invested monthly, that is about ${M.f(fv(extra, n, i))} after ${p.etf.years} years.` : 'Switch an idea on to see what it adds. Tap a target to try a smaller cut.')}
+  <section class="group"><h2 class="g-title">Savings plan</h2>
+    <div class="plan-card">
+      <table class="plan">${head}<thead><tr><th>Month</th><th>Saved</th><th>WIO</th><th>IBKR ${unitC}</th></tr></thead><tbody>${plan.slice(0,13).map(tr).join('')}</tbody></table>
+      <details><summary>Show the next 12 months</summary><table class="plan">${head}<tbody>${plan.slice(13).map((r,k) => tr(r, k + 13)).join('')}</tbody></table></details>
+    </div>
+    <p class="g-foot">The first row is ${monthName(key)} with what you entered. Saved and WIO in AED.</p>
+  </section>`;
+}
+
+function chart(A, B, M){
+  const W = 640, H = 300, L = 70, Rr = 14, T = 16, Bm = 36;
+  const n = A.length - 1, v = r => r.ibkr * M.r;
+  const top = Math.max(...A.map(v), ...(B ? B.map(v) : []), 1);
+  const pow = Math.pow(10, Math.floor(Math.log10(top)));
+  const max = [1,1.5,2,2.5,3,4,5,6,8,10].map(k => k*pow).find(x => x >= top);
+  const x = k => L + (W - L - Rr) * k / n, y = val => T + (H - T - Bm) * (1 - val / max);
+  const path = rows => rows.map((r,k) => (k ? 'L' : 'M') + x(k).toFixed(1) + ' ' + y(v(r)).toFixed(1)).join(' ');
+  const yrs = n / 12, step = yrs > 20 ? 5 : yrs > 6 ? 2 : 1;
+  let g = '';
+  for (let t = 0; t <= 4; t++) { const val = max * t / 4; g += `<line x1="${L}" x2="${W-Rr}" y1="${y(val)}" y2="${y(val)}" stroke="var(--hair)"/><text x="${L-10}" y="${y(val)+6}" text-anchor="end">${short(val)}</text>`; }
+  for (let yr = 0; yr <= yrs; yr += step) g += `<text x="${x(yr*12)}" y="${H-8}" text-anchor="middle">${yr ? yr + ' y' : 'now'}</text>`;
+  const main = B || A;
+  const area = path(main) + ` L${x(n)} ${y(0)} L${x(0)} ${y(0)} Z`;
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="IBKR balance in ${M.c} over ${yrs} years">${g}
+    <path d="${area}" fill="var(--accent-soft)"/>
+    ${B ? `<path d="${path(A)}" fill="none" stroke="var(--muted)" stroke-width="2" stroke-dasharray="5 4"/>` : ''}
+    <path d="${path(main)}" fill="none" stroke="var(--accent)" stroke-width="2.6" stroke-linejoin="round"/>
+    <circle cx="${x(n)}" cy="${y(v(main[n]))}" r="4" fill="var(--accent)"/></svg>`;
+}
+
+/* ---------- Sync: where your data lives ---------- */
+const cfgIn = (k, v, label, secret) => `<input class="val" size="1" id="cfg-${k}" data-cfg="${k}"${secret ? ' type="password"' : ''} value="${esc(v || '')}" placeholder="${secret ? 'paste here' : ''}" aria-label="${esc(label)}" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="done">`;
+function viewSync(){
+  const last = sync.last ? new Date(sync.last).toLocaleString('en-GB', {day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'}) : 'not yet';
+  return `
+  ${group('Status', row(SYNC[S.sync], null, {cap:`Last saved to GitHub: ${last}${sync.dirty ? ' · changes waiting to upload' : ''}`}) + (connected() ? link('sync-now', 'Sync now') : ''))}
+  ${group('Your private GitHub repo',
+      row('Account', cfgIn('owner', cfg.owner, 'GitHub account name'), {tag:'label'})
+    + row('Repository', cfgIn('repo', cfg.repo, 'Private repository'), {tag:'label'})
+    + row('Key', cfgIn('token', cfg.token, 'GitHub key', true), {tag:'label', cap:cfg.token ? 'Saved on this device only' : 'A fine-grained key for this one repository'}),
+    'The key stays on this device. It is never part of the app or the public repo.')}
+  ${group('Backup', link('export', 'Download a copy')
+    + `<label class="row link" for="import-file">Restore from a copy…<input type="file" id="import-file" accept="application/json,.json" hidden></label>`
+    + (cfg.token ? `<button type="button" class="row link danger" data-act="forget">Forget the key on this device</button>` : ''),
+    'Every save is also a version in the repo’s history on GitHub, so an older copy can always be brought back.')}`;
+}
+function banner(){
+  if (sync.conflict) return `<div class="banner"><b>Your other device saved changes</b><span>Both devices changed something since the last sync. Pick which copy to keep; the other stays in GitHub’s history.</span><div class="bbtns"><button type="button" data-act="use-remote">Use the other device’s</button><button type="button" data-act="keep-local">Keep this one</button></div></div>`;
+  if (S.view === 'sync') return '';
+  if (!connected()) return `<button type="button" class="banner tap" data-view="sync"><b>Connect your private data</b><span>Add your GitHub key once on this device to load your budget and keep it in sync.</span></button>`;
+  if (S.sync === 'auth') return `<button type="button" class="banner tap warn" data-view="sync"><b>GitHub didn’t accept the key</b><span>It may have expired. Tap to paste a new one.</span></button>`;
+  return '';
+}
+
+/* ---------- render ---------- */
+function snapFocus(){
+  const a = document.activeElement;
+  if (!a || !a.id) return null;
+  const s = {id:a.id};
+  if (a.tagName === 'INPUT' && a.type !== 'checkbox') { s.val = a.value; s.ss = a.selectionStart; s.se = a.selectionEnd; }
+  return s;
+}
+function restoreFocus(s){
+  if (!s) return;
+  const el = document.getElementById(s.id);
+  if (!el) return;
+  if (s.val != null) el.value = s.val;
+  el.focus({preventScroll:true});
+  if (s.ss != null) try { el.setSelectionRange(s.ss, s.se); } catch(e) {}
+}
+function navHtml(){ return VIEWS.map(([id, label]) => `<button type="button" data-view="${id}" aria-current="${S.view === id ? 'page' : 'false'}">${ICONS[id]}<span>${label}</span></button>`).join(''); }
+function render(){
+  const keep = snapFocus();
+  const p = S.plan, key = S.key;
+  const R = compute(p, S.months[key], wioStart(key));
+  document.querySelectorAll('.month-label').forEach(e => { e.textContent = monthName(key); });
+  document.getElementById('tabbar').innerHTML = navHtml();
+  document.getElementById('side-nav').innerHTML = navHtml();
+  const V = S.view === 'sync' ? ['sync', 'Sync', 'Sync'] : (VIEWS.find(v => v[0] === S.view) || VIEWS[0]);
+  const body = {today:viewToday, month:viewMonth, budget:viewBudget, grow:viewGrow, sync:viewSync}[V[0]](p, R, key);
+  document.getElementById('view').innerHTML = `<h1 class="large">${V[2]}</h1>` + banner() + body;
+  showSync();
+  restoreFocus(keep);
+}
+
+function stepsFor(p, R, m){
+  const st = [], lb = {...LABELS, ...(p.text || {})};
+  const fee = p.hsbcFee;
+  st.push({id:'usd', t:`WIO: change ${usd(R.salaryUsd)} to AED`, a:aed(R.incomeMonth)});
+  if (R.nbdSend > 0) st.push({id:'nbd', t:'WIO → NBD', d:R.nbdParts.map(([n,v]) => `${n} ${r0(v)}`).join(' + ') + (R.extraNbd ? ` − already in NBD ${r0(R.extraNbd)}` : ''), a:aed(R.nbdSend)});
+  if (R.hsbcTotal > 0) st.push({id:'hsbc', t:'WIO → HSBC → REVO', d:`About ${r0(fee)} fee, so about ${aed(R.hsbcTotal - fee)} lands in Revo` + (R.extraRevo ? `. Already in Revo: ${aed(R.extraRevo)}` : '') + (R.toIbkr ? `. Includes ${aed(R.toIbkr)} for IBKR` : ''), a:aed(R.hsbcTotal)});
+  if (R.zaba > 0) st.push({id:'zaba', t:'REVO → ZABA in EUR', d:R.zabaParts.map(([n,v]) => `${n} ${eur(v)}`).join(' · '), a:eur(R.zaba)});
+  const rent = R.row('rentjp');
+  if (rent) st.push(rent.paid ? {id:'rent', t:`${rent.name} to ${lb.rentTo}`, d:'Already paid this month', a:'done', skip:true}
+                              : {id:'rent', t:`REVO → ${lb.rentTo} (${rent.name})`, d:`About ${aed(rent.aed)}` + (lb.rentDue ? `. ${lb.rentDue}` : ''), a:jpy(rent.orig)});
+  for (const r of R.rows) if (r.from === 'REVO' && r.eur && !r.paid) st.push({id:'eur-' + r.id, t:`REVO → ${r.name} in EUR`, d:`About ${aed(r.aed)}`, a:eur(r.eurOut)});
+  if (R.zaba > 0) st.push({id:'zabapay', t:'ZABA: pay the euro bills', d:R.zabaParts.map(([n,v]) => `${n} ${eur(v)}`).join(' · ')});
+  const mort = R.row('mortdxb');
+  if (mort && !mort.paid) {
+    st.push({id:'dxb', t:`NBD: pay internet, service fee, ${lb.utility}`, d:`Internet ${r0(p.dxb.internet)} + service fee ${r0(R.serviceDxb)} + ${lb.utility} ${r0(R.dewaDxb)}`, a:aed(p.dxb.internet + R.serviceDxb + R.dewaDxb)});
+    st.push({id:'toPartner', t:`NBD → ${lb.partner} (rest of the ${r0(mort.aed)})`, d:lb.partnerNote, a:aed(R.toPartner)});
+  }
+  if (R.wioOneoffs > 0) st.push({id:'wiooff', t:'WIO: pay the unexpected costs', d:R.oneoffs.filter(o => o.bank === 'WIO').map(o => `${o.name || 'Cost'} ${r0(o.amt)}`).join(' · '), a:aed(R.wioOneoffs)});
+  if (R.toIbkr > 0) st.push({id:'ibkr', t:'REVO → IBKR for the ETF', d:`Savings over the ${aed(p.wioGoal)} WIO goal`, a:aed(R.toIbkr)});
+  const togo = p.wioGoal - R.wioSav;
+  st.push({id:'wio', t:'Leave in WIO', d:`${aed(p.spendWio)} to spend + ${aed(R.wioSav)} savings` + (togo > 0 ? `. ${aed(togo)} more to reach ${r0(p.wioGoal)}` : `. Goal of ${r0(p.wioGoal)} reached`), a:aed(R.wioAfter)});
+  return st;
+}
+
+function setPath(root, parts, val){
+  let o = root;
+  for (let i = 0; i < parts.length - 1; i++) { const k = parts[i]; if (o[k] == null || typeof o[k] !== 'object') o[k] = {}; o = o[k]; }
+  const last = parts[parts.length - 1];
+  if (val === undefined) delete o[last]; else o[last] = val;
+}
+function setKey(k, val){
+  const [root, ...parts] = k.split('.');
+  if (root === 'p') {
+    if (parts[0] === 'etf' && parts[1] === 'years') val = Math.max(1, Math.min(40, Math.round(val || 1)));
+    setPath(S.plan, parts, val); queueSave('plan');
+  } else {
+    if (!S.months[S.key]) S.months[S.key] = {};
+    setPath(S.months[S.key], parts, val); queueSave('months/' + S.key);
+  }
+  cache();
+}
+function readEl(el){
+  if (el.type === 'checkbox') return el.checked || undefined;
+  if (!('num' in el.dataset)) return el.value;
+  let n = parseNum(el.value);
+  if (n != null && el.dataset.scale) n /= +el.dataset.scale;
+  return n == null ? ('empty' in el.dataset ? undefined : 0) : n;
+}
+
+// Typing keeps the value; leaving the box (or Done / Enter) recalculates.
+document.addEventListener('input', e => { const el = e.target; if (el.dataset && el.dataset.k && el.type !== 'checkbox') setKey(el.dataset.k, readEl(el)); });
+document.addEventListener('change', e => {
+  const el = e.target; if (!el.dataset || !el.dataset.k) return;
+  S.justDone = el.dataset.k.startsWith('m.done.') && el.checked ? el.dataset.k.slice(7) : null;
+  setKey(el.dataset.k, readEl(el)); render(); S.justDone = null;
+});
+document.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.matches && e.target.matches('input.val, input.txt, input.big, input.mini')) e.target.blur(); });
+
+function setView(v){
+  S.view = v;
+  try { localStorage.setItem('budget-savings-view', v); } catch(e) {}
+  render(); window.scrollTo(0, 0);
+}
+document.addEventListener('click', e => {
+  const nav = e.target.closest('[data-view]'); if (nav) { setView(nav.dataset.view); return; }
+  const b = e.target.closest('[data-act]'); if (!b) return;
+  const act = b.dataset.act;
+  const listEdit = (path, fn) => { fn(); queueSave(path); cache(); render(); };
+  if (act === 'prev' || act === 'next') { S.key = addMonths(S.key, act === 'prev' ? -1 : 1); render(); return; }
+  if (act === 'cycle') { const opts = b.dataset.opts.split(','); const cur = b.textContent.trim(); setKey(b.dataset.k, opts[(opts.indexOf(cur) + 1) % opts.length]); render(); return; }
+  if (act === 'seg') { setKey(b.dataset.k, b.dataset.v); render(); return; }
+  if (act === 'years') { setKey('p.etf.years', S.plan.etf.years + +b.dataset.d); render(); return; }
+  if (act === 'add-sub') return listEdit('plan', () => S.plan.subs.push({id:'s' + Date.now().toString(36), name:'', amt:0, bank:'REVO'}));
+  if (act === 'del-sub') return listEdit('plan', () => S.plan.subs.splice(+b.dataset.i, 1));
+  if (act === 'add-extra') return listEdit('plan', () => S.plan.extras.push({id:'x' + Date.now().toString(36), name:'', amt:0, bank:'REVO'}));
+  if (act === 'del-extra') return listEdit('plan', () => S.plan.extras.splice(+b.dataset.i, 1));
+  if (act === 'add-oneoff' || act === 'del-oneoff') {
+    const m = S.months[S.key] || (S.months[S.key] = {});
+    m.oneoffs = m.oneoffs || [];
+    listEdit('months/' + S.key, () => { if (act === 'add-oneoff') m.oneoffs.push({name:'', amt:0, bank:'REVO'}); else m.oneoffs.splice(+b.dataset.i, 1); });
+    if (act === 'add-oneoff') { const f = document.getElementById(idOf(`m.oneoffs.${m.oneoffs.length - 1}.name`)); if (f) f.focus(); }
+    return;
+  }
+  if (act === 'copy') {
+    const box = document.getElementById('copybox');
+    const showBox = () => { box.innerHTML = `<textarea class="copyout" id="copyout" readonly aria-label="This month as text">${esc(S.copyText)}</textarea>`; const t = document.getElementById('copyout'); t.focus(); t.select(); };
+    try { navigator.clipboard.writeText(S.copyText).then(() => { b.textContent = 'Copied'; setTimeout(() => { b.textContent = 'Copy this month as text'; }, 1600); }, showBox); } catch(err) { showBox(); }
+  }
+});
+
+/* ---------- saving: on this device first, then a file in your private GitHub repo ---------- */
+// The key is typed into this device by you and kept only in this device's storage.
+const cfg = {owner:location.hostname.endsWith('.github.io') ? location.hostname.split('.')[0] : '', repo:'budget-data', path:'data.json', token:''};
+try { Object.assign(cfg, JSON.parse(localStorage.getItem('budget-sync-config') || '{}')); } catch(e) {}
+const saveCfg = () => { try { localStorage.setItem('budget-sync-config', JSON.stringify(cfg)); } catch(e) {} };
+const sync = {sha:null, dirty:false, last:null, timer:null, busy:false, conflict:null};
+try { Object.assign(sync, JSON.parse(localStorage.getItem('budget-sync-state') || '{}')); } catch(e) {}
+const saveSyncState = () => { try { localStorage.setItem('budget-sync-state', JSON.stringify({sha:sync.sha, dirty:sync.dirty, last:sync.last})); } catch(e) {} };
+let editRev = 0;
+
+const SYNC = {local:'Not connected', checking:'Checking…', saving:'Saving…', synced:'Synced', offline:'Offline · saved here', auth:'Key not accepted', error:'Sync failed · saved here', conflict:'Needs a choice'};
+const showSync = () => document.querySelectorAll('.sync').forEach(e => { e.textContent = SYNC[S.sync]; e.dataset.s = S.sync; });
+const setSync = (s, redraw) => { S.sync = s; if (redraw) render(); else showSync(); };
+const connected = () => !!(cfg.token && cfg.owner && cfg.repo);
+const device = () => /iPhone|iPad/.test(navigator.userAgent) ? 'iPhone' : /Macintosh/.test(navigator.userAgent) ? 'Mac' : 'browser';
+
+const b64e = str => { const bytes = new TextEncoder().encode(str); let bin = ''; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000)); return btoa(bin); };
+const b64d = str => new TextDecoder().decode(Uint8Array.from(atob(str.replace(/\s/g, '')), c => c.charCodeAt(0)));
+function gh(method, body){
+  const url = `https://api.github.com/repos/${encodeURIComponent(cfg.owner)}/${encodeURIComponent(cfg.repo)}/contents/${cfg.path.split('/').map(encodeURIComponent).join('/')}`;
+  return fetch(url, {method, cache:'no-store', headers:{Authorization:'Bearer ' + cfg.token, Accept:'application/vnd.github+json', 'X-GitHub-Api-Version':'2022-11-28', ...(body ? {'Content-Type':'application/json'} : {})}, body:body ? JSON.stringify(body) : undefined});
+}
+function applyRemote(doc){
+  if (!doc || typeof doc !== 'object' || !doc.plan) return false;
+  S.plan = mergePlan(doc.plan); S.months = doc.months || {}; cache();
+  return true;
+}
+async function readRemote(){
+  const r = await gh('GET');
+  if (r.status === 404) return {missing:true};
+  if (r.status === 401 || r.status === 403) return {auth:true};
+  if (!r.ok) return {error:true};
+  const j = await r.json();
+  return {sha:j.sha, doc:JSON.parse(b64d(j.content))};
+}
+
+// Fetch the latest copy. Untouched here: take it. Changed on both devices: ask.
+async function pull(){
+  if (!connected()) return setSync('local');
+  if (!navigator.onLine) return setSync('offline');
+  if (sync.busy) return;
+  if (S.sync !== 'conflict') setSync('checking');
+  let res;
+  try { res = await readRemote(); } catch(e) { return setSync('offline'); }
+  if (res.auth) return setSync('auth', true);
+  if (res.error) return setSync('error');
+  if (res.missing) { sync.sha = null; return sync.dirty ? push() : setSync('synced'); }
+  if (res.sha === sync.sha) return sync.dirty ? push() : setSync('synced', S.sync === 'auth');
+  if (!sync.dirty) { applyRemote(res.doc); sync.sha = res.sha; sync.last = res.doc.savedAt || sync.last; saveSyncState(); return setSync('synced', true); }
+  sync.conflict = res; setSync('conflict', true);
+}
+
+async function push(){
+  clearTimeout(sync.timer);
+  if (!connected() || sync.busy || sync.conflict) return;
+  if (!navigator.onLine) return setSync('offline');
+  sync.busy = true; setSync('saving');
+  const rev = editRev;
+  const doc = {app:'budget-savings', v:1, savedAt:new Date().toISOString(), device:device(), plan:S.plan, months:S.months};
+  let r = null;
+  try { r = await gh('PUT', {message:`Saved on ${doc.device}`, content:b64e(JSON.stringify(doc, null, 1)), ...(sync.sha ? {sha:sync.sha} : {})}); } catch(e) {}
+  sync.busy = false;
+  if (!r) return setSync('offline');
+  if (r.ok) {
+    const j = await r.json();
+    sync.sha = j.content.sha; sync.last = doc.savedAt;
+    if (editRev === rev) sync.dirty = false; else sync.timer = setTimeout(push, 1500);
+    saveSyncState(); return setSync('synced', S.sync === 'auth');
+  }
+  if (r.status === 409 || r.status === 422) {   // the other device saved first
+    try { const res = await readRemote(); if (res.doc) { sync.conflict = res; return setSync('conflict', true); } } catch(e) {}
+    return setSync('error');
+  }
+  if (r.status === 401 || r.status === 403 || r.status === 404) return setSync('auth', true);
+  setSync('error');
+}
+
+function queueSave(){
+  editRev++; sync.dirty = true; saveSyncState();
+  if (!connected()) return;
+  clearTimeout(sync.timer); sync.timer = setTimeout(push, 2000);
+  if (S.sync !== 'conflict') setSync(navigator.onLine ? 'saving' : 'offline');
+}
+
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') { if (sync.dirty) push(); } else pull(); });
+window.addEventListener('online', () => pull());
+window.addEventListener('offline', () => setSync('offline'));
+
+// Sync settings, backup, and the choice when both devices changed
+document.addEventListener('change', e => {
+  const el = e.target;
+  if (el.dataset && el.dataset.cfg) {
+    const before = cfg[el.dataset.cfg];
+    cfg[el.dataset.cfg] = el.value.trim(); saveCfg();
+    if (cfg[el.dataset.cfg] !== before) { sync.sha = null; saveSyncState(); render(); pull(); }
+    return;
+  }
+  if (el.id === 'import-file' && el.files && el.files[0]) {
+    el.files[0].text().then(t => {
+      const doc = JSON.parse(t);
+      if (!applyRemote(doc)) throw new Error('not a budget file');
+      queueSave(); render(); alert('Restored. It will sync to your other device.');
+    }).catch(() => alert('That file is not a Budget + Savings copy.'));
+  }
+});
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-act]'); if (!b) return;
+  const act = b.dataset.act;
+  if (act === 'sync-now') { if (sync.dirty) push(); else pull(); }
+  if (act === 'use-remote' && sync.conflict) { applyRemote(sync.conflict.doc); sync.sha = sync.conflict.sha; sync.last = sync.conflict.doc.savedAt || sync.last; sync.dirty = false; sync.conflict = null; saveSyncState(); setSync('synced', true); }
+  if (act === 'keep-local' && sync.conflict) { sync.sha = sync.conflict.sha; sync.conflict = null; saveSyncState(); render(); push(); }
+  if (act === 'export') {
+    const doc = {app:'budget-savings', v:1, savedAt:new Date().toISOString(), device:device(), plan:S.plan, months:S.months};
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(doc, null, 1)], {type:'application/json'}));
+    a.download = `budget-savings-${new Date().toISOString().slice(0,10)}.json`;
+    document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  }
+  if (act === 'forget' && confirm('Forget the GitHub key on this device? Your data stays on GitHub and on this device.')) { cfg.token = ''; saveCfg(); setSync('local', true); }
+});
+
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) navigator.serviceWorker.register('sw.js').catch(() => {});
+S.sync = connected() ? 'checking' : 'local';
+render();
+pull();
+})();
+</script>
+</body>
+</html>
+
