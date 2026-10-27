@@ -264,6 +264,7 @@ const DEFAULT_PLAN = {
   hsbcFee: 0, spendRevo: 0, spendWio: 0,
   wioSavings: 0, wioGoal: 30000, ibkrNow: 0,
   etf: {ret:7, years:10, bonus:0, cur:'EUR'},
+  ratesAuto: true,
   ideas: {}
 };
 // Words that name people and places live in your data (plan.text), not in this public code.
@@ -304,7 +305,8 @@ function parseNum(raw){
 /* ---------- state ---------- */
 const today = new Date();
 const thisKey = (() => { const d = today.getDate() >= 15 ? today : new Date(today.getFullYear(), today.getMonth()-1, 1); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0'); })();
-const S = { plan: clone(DEFAULT_PLAN), months: {}, key: thisKey, sync: 'local', copyText: '', view: 'today' };
+const S = { plan: clone(DEFAULT_PLAN), months: {}, key: thisKey, sync: 'local', copyText: '', view: 'today', fx: null };
+try { S.fx = JSON.parse(localStorage.getItem('budget-fx') || 'null'); } catch(e) {}
 try { const v = (location.hash || '').slice(1) || localStorage.getItem('budget-savings-view'); if (['today','month','budget','grow','sync'].includes(v)) S.view = v; } catch(e) {}
 
 function mergePlan(stored){
@@ -414,7 +416,7 @@ function wioStart(key, depth = 0){
   for (let k = 1; k <= 24 - depth; k++) { if (S.months[addMonths(key,-k)]) { back = k; break; } }
   if (back == null) return S.plan.wioSavings;
   const prev = addMonths(key, -1);
-  return Math.min(compute(S.plan, S.months[prev], wioStart(prev, depth + 1)).wioSav, S.plan.wioGoal);
+  return Math.min(compute(effPlan(), S.months[prev], wioStart(prev, depth + 1)).wioSav, S.plan.wioGoal);
 }
 
 function ideasList(p){
@@ -428,6 +430,36 @@ function ideasList(p){
 }
 
 const mRate = p => Math.pow(1 + p.etf.ret/100, 1/12) - 1;
+
+/* ---------- exchange rates: fetched once a day on each device, your typed ones as the fallback ---------- */
+const rateOf = (p, c) => c === 'EUR' ? p.eurPerAed : c === 'USD' ? p.usdPerAed : 1;
+// IBKR balance as you typed it, in its own currency, so a new rate never changes the number you entered
+const holding = p => p.ibkrHold || {amt:(+p.ibkrNow || 0) * rateOf(p, p.etf.cur || 'AED'), cur:p.etf.cur || 'AED'};
+const liveRates = () => S.plan.ratesAuto !== false && S.fx ? S.fx : null;
+// The plan every sum works from: today's rates in, IBKR balance turned into AED with them
+function effPlan(){
+  const fx = liveRates();
+  const e = fx ? {...S.plan, usdPerAed:fx.usdPerAed, eurPerAed:fx.eurPerAed, aedPerJpy:fx.aedPerJpy} : {...S.plan};
+  const h = holding(S.plan);
+  e.ibkrNow = (+h.amt || 0) / rateOf(e, h.cur);
+  return e;
+}
+const sane = r => r.usdPerAed > 0.25 && r.usdPerAed < 0.3 && r.eurPerAed > 0.15 && r.eurPerAed < 0.4 && r.aedPerJpy > 0.01 && r.aedPerJpy < 0.05;
+async function refreshRates(force){
+  const today = new Date().toISOString().slice(0, 10);
+  if (!force && S.fx && S.fx.fetched === today) return;
+  if (!navigator.onLine) return;
+  for (const url of ['https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/aed.min.json', 'https://latest.currency-api.pages.dev/v1/currencies/aed.min.json']) {
+    try {
+      const r = await fetch(url, {cache:'no-store'}); if (!r.ok) continue;
+      const j = await r.json(), a = j.aed || {};
+      const next = {fetched:today, date:j.date, usdPerAed:a.usd, eurPerAed:a.eur, aedPerJpy:1 / a.jpy};
+      if (!sane(next)) continue;          // a broken feed never reaches your sums
+      S.fx = next; try { localStorage.setItem('budget-fx', JSON.stringify(next)); } catch(e) {}
+      render(); return;
+    } catch(e) {}
+  }
+}
 // IBKR figures in the currency the account is in; everything is worked out in AED underneath
 function etfMoney(p){
   const c = p.etf.cur || 'AED';
@@ -620,9 +652,16 @@ function viewBudget(p, R){
       + row(esc(`${t.utility}, usual`), num('p.dxb.dewa', p.dxb.dewa, {label:'Usual utilities'}), {tag:'label', unit:'AED'})
       + row(esc(`To ${t.partner}`), r0((mort ? mort.aed : 0) - p.dxb.internet - p.dxb.service - p.dxb.dewa), {cls:'total', unit:'AED'}))}
   ${group('Subscriptions', subs, esc(t.subsNote))}
-  ${group('Exchange rates', row('1 AED in USD', num('p.usdPerAed', p.usdPerAed, {dec:true, label:'USD per AED'}), {tag:'label'})
-      + row('1 AED in EUR', num('p.eurPerAed', p.eurPerAed, {dec:true, label:'EUR per AED'}), {tag:'label'})
-      + row('1 yen in AED', num('p.aedPerJpy', p.aedPerJpy, {dec:true, label:'AED per yen'}), {tag:'label'}), 'Typed in by you. The page cannot look up live rates.')}`;
+  ${ratesGroup(p)}`;
+}
+
+function heldIn(p, c){ const h = holding(S.plan); return h.cur === c ? +h.amt || 0 : (+h.amt || 0) / rateOf(p, h.cur) * rateOf(p, c); }
+function ratesGroup(p){
+  const auto = S.plan.ratesAuto !== false, fx = S.fx;
+  const sw4 = row('Update every day', null, {tag:'label', cap:auto ? (fx ? `Rates of ${new Date(fx.date + 'T12:00:00').toLocaleDateString('en-GB', {day:'numeric', month:'short'})}, checked ${fx.fetched === new Date().toISOString().slice(0,10) ? 'today' : 'on ' + fx.fetched}` : 'Waiting for the first update; your typed rates are used') : 'Off: your typed rates are used', end:sw('p.ratesAuto', auto, 'Update exchange rates every day')});
+  const show = (label, k, v) => auto && fx ? row(label, nfr.format(v)) : row(label, num('p.' + k, S.plan[k], {dec:true, label}), {tag:'label'});
+  return group('Exchange rates', sw4 + show('1 AED in USD', 'usdPerAed', p.usdPerAed) + show('1 AED in EUR', 'eurPerAed', p.eurPerAed) + show('1 yen in AED', 'aedPerJpy', p.aedPerJpy),
+    auto ? 'Fetched once a day on this device. Your typed rates are kept as the backup for when there is no connection.' : 'Switch on to fetch rates once a day.');
 }
 
 /* ---------- Grow: possible savings, ETF, savings plan ---------- */
@@ -653,7 +692,7 @@ function viewGrow(p, R, key){
   </div>
   ${group('ETF settings',
       row('Account currency', null, {end:seg('p.etf.cur', M.c, ['EUR','USD','AED'], 'IBKR account currency')})
-    + row('IBKR now', num('p.ibkrNow', p.ibkrNow, {scale:M.r, label:'IBKR balance now in ' + M.c}), {tag:'label', unit:unitC})
+    + row('IBKR now', num('p.ibkrHold.amt', heldIn(p, M.c), {d2:true, label:'IBKR balance now in ' + M.c}), {tag:'label', unit:unitC})
     + row('Return a year', num('p.etf.ret', p.etf.ret, {dec:true, label:'Assumed yearly return, percent'}), {tag:'label', unit:'%'})
     + row('Years', null, {end:`<div class="stepper"><button type="button" data-act="years" data-d="-1" aria-label="Fewer years">−</button><b>${p.etf.years}</b><button type="button" data-act="years" data-d="1" aria-label="More years">+</button></div>`})
     + row('Bonus each July', num('p.etf.bonus', p.etf.bonus, {label:'Yearly bonus in USD'}), {tag:'label', unit:'USD', sub:+p.etf.bonus ? `= ${aed(p.etf.bonus / p.usdPerAed)}` : ''})
@@ -745,7 +784,7 @@ function restoreFocus(s){
 function navHtml(){ return VIEWS.map(([id, label]) => `<button type="button" data-view="${id}" aria-current="${S.view === id ? 'page' : 'false'}">${ICONS[id]}<span>${label}</span></button>`).join(''); }
 function render(){
   const keep = snapFocus();
-  const p = S.plan, key = S.key;
+  const p = effPlan(), key = S.key;
   const R = compute(p, S.months[key], wioStart(key));
   document.querySelectorAll('.month-label').forEach(e => { e.textContent = monthName(key); });
   document.getElementById('tabbar').innerHTML = navHtml();
@@ -791,6 +830,8 @@ function setKey(k, val){
   const [root, ...parts] = k.split('.');
   if (root === 'p') {
     if (parts[0] === 'etf' && parts[1] === 'years') val = Math.max(1, Math.min(40, Math.round(val || 1)));
+    if (parts[0] === 'ratesAuto') val = !!val;
+    if (parts[0] === 'ibkrHold') { S.plan.ibkrHold = {amt:+val || 0, cur:S.plan.etf.cur || 'AED'}; queueSave('plan'); cache(); return; }
     setPath(S.plan, parts, val); queueSave('plan');
   } else {
     if (!S.months[S.key]) S.months[S.key] = {};
@@ -951,7 +992,7 @@ function cfgEdited(el, now){
 }
 document.addEventListener('input', e => { if (e.target.dataset && e.target.dataset.cfg) cfgEdited(e.target, false); });
 
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') { if (sync.dirty) push(); } else pull(); });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') { if (sync.dirty) push(); } else { pull(); refreshRates(); } });
 window.addEventListener('online', () => pull());
 window.addEventListener('offline', () => setSync('offline'));
 
@@ -970,6 +1011,7 @@ document.addEventListener('change', e => {
 document.addEventListener('click', e => {
   const b = e.target.closest('[data-act]'); if (!b) return;
   const act = b.dataset.act;
+  if (act === 'sync-now') refreshRates(true);
   if (act === 'sync-now') { if (sync.dirty) push(); else pull(); }
   if (act === 'connect') { document.querySelectorAll('[data-cfg]').forEach(i => { cfg[i.dataset.cfg] = i.value.trim(); }); saveCfg(); if (document.activeElement) document.activeElement.blur(); cfgEdited(null, true); }
   if (act === 'theme') { setTheme(b.dataset.v); render(); }
@@ -997,6 +1039,7 @@ if (theme() !== 'auto') setTheme(theme());
 S.sync = connected() ? 'checking' : 'local';
 render();
 pull();
+refreshRates();
 })();
 </script>
 </body>
