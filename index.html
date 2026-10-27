@@ -15,6 +15,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+<script>try{var t=localStorage.getItem('budget-theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t}catch(e){}</script>
 <style>
 /* Layout: a phone app. Bottom tab bar (Today · Month · Budget · Grow) on iPhone, a sidebar on the Mac,
    one column of iOS inset-grouped lists. One accent colour, money green. */
@@ -62,7 +63,7 @@ h1,h2,h3,p{margin:0}
 .sync{font-size:13px;color:var(--muted);display:flex;align-items:center;gap:6px;white-space:nowrap}
 .sync::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--faint);flex:none}
 .sync[data-s="synced"]::before{background:var(--accent)}
-.sync[data-s="error"]::before,.sync[data-s="auth"]::before,.sync[data-s="conflict"]::before{background:var(--warn)}
+.sync[data-s="error"]::before,.sync[data-s="auth"]::before,.sync[data-s="norepo"]::before,.sync[data-s="conflict"]::before{background:var(--warn)}
 button.sync{appearance:none;border:0;background:none;padding:6px 2px;cursor:pointer;font:inherit;font-size:13px}
 button.sync:focus-visible{outline:2px solid var(--accent);border-radius:6px}
 .banner{display:flex;flex-direction:column;gap:4px;text-align:left;border:0;border-radius:14px;padding:14px 16px;background:var(--accent-soft);color:var(--ink);font:inherit;width:100%}
@@ -108,6 +109,7 @@ label.row:focus-within{background:var(--accent-soft)}
 .row.link:hover{background:var(--accent-soft)}
 input.val,input.txt,input.big,input.mini{appearance:none;-webkit-appearance:none;border:0;background:none;font:inherit;color:var(--ink);min-width:0;width:100%;padding:0;margin:0;outline:none;border-radius:0}
 input.val{text-align:right;font-variant-numeric:tabular-nums}
+input.secret{-webkit-text-security:disc;font-family:var(--font)}
 input.val:focus,input.mini:focus,input.big:focus{color:var(--accent)}
 input::placeholder{color:var(--faint);opacity:1}
 input.mini{display:inline-block;width:4.6em;font-style:normal;color:var(--ink);border-bottom:1px dashed var(--faint);text-align:right;font-variant-numeric:tabular-nums}
@@ -227,14 +229,14 @@ table.plan tr.hit td{color:var(--accent);font-weight:600}
     <button type="button" data-act="prev" aria-label="Previous month">‹</button><span class="month-label">October 2026</span><button type="button" data-act="next" aria-label="Next month">›</button>
   </div>
   <nav class="side-nav" id="side-nav"></nav>
-  <button type="button" class="sync" data-view="sync" data-s="local" aria-label="Sync status and settings">Loading…</button>
+  <button type="button" class="sync" data-view="sync" data-s="local" aria-label="Settings and sync status">Loading…</button>
 </aside>
 <div class="main">
   <header class="top">
     <div class="month" role="group" aria-label="Salary month">
       <button type="button" data-act="prev" aria-label="Previous month">‹</button><span class="month-label">October 2026</span><button type="button" data-act="next" aria-label="Next month">›</button>
     </div>
-    <button type="button" class="sync" data-view="sync" data-s="local" aria-label="Sync status and settings">Loading…</button>
+    <button type="button" class="sync" data-view="sync" data-s="local" aria-label="Settings and sync status">Loading…</button>
   </header>
   <main class="view" id="view"></main>
 </div>
@@ -690,8 +692,15 @@ function chart(A, B, M){
     <circle cx="${x(n)}" cy="${y(v(main[n]))}" r="4" fill="var(--accent)"/></svg>`;
 }
 
-/* ---------- Sync: where your data lives ---------- */
-const cfgIn = (k, v, label, secret) => `<input class="val" size="1" id="cfg-${k}" data-cfg="${k}"${secret ? ' type="password"' : ''} value="${esc(v || '')}" placeholder="${secret ? 'paste here' : ''}" aria-label="${esc(label)}" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="done">`;
+/* ---------- Settings: theme, and where your data lives ---------- */
+const theme = () => { try { return localStorage.getItem('budget-theme') || 'auto'; } catch(e) { return 'auto'; } };
+function setTheme(v){
+  try { if (v === 'auto') localStorage.removeItem('budget-theme'); else localStorage.setItem('budget-theme', v); } catch(e) {}
+  if (v === 'auto') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = v;
+  const dark = v === 'dark' || (v === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
+  document.querySelectorAll('meta[name="theme-color"]').forEach(m => { m.setAttribute('content', dark ? '#000000' : '#f2f2f7'); m.removeAttribute('media'); });
+}
+const cfgIn = (k, v, label, secret) => `<input class="val${secret ? ' secret' : ''}" size="1" id="cfg-${k}" data-cfg="${k}" type="text" value="${esc(v || '')}" placeholder="${secret ? 'paste here' : ''}" aria-label="${esc(label)}" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="done">`;
 function viewSync(){
   const last = sync.last ? new Date(sync.last).toLocaleString('en-GB', {day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'}) : 'not yet';
   return `
@@ -699,8 +708,10 @@ function viewSync(){
   ${group('Your private GitHub repo',
       row('Account', cfgIn('owner', cfg.owner, 'GitHub account name'), {tag:'label'})
     + row('Repository', cfgIn('repo', cfg.repo, 'Private repository'), {tag:'label'})
-    + row('Key', cfgIn('token', cfg.token, 'GitHub key', true), {tag:'label', cap:cfg.token ? 'Saved on this device only' : 'A fine-grained key for this one repository'}),
+    + row('Key', cfgIn('token', cfg.token, 'GitHub key', true), {tag:'label', cap:cfg.token ? 'Saved on this device only' : 'A fine-grained key for this one repository'})
+    + (!connected() || ['auth','norepo','local','error'].includes(S.sync) ? link('connect', 'Connect') : ''),
     'The key stays on this device. It is never part of the app or the public repo.')}
+  ${group('Appearance', row('Theme', null, {end:`<div class="seg" role="group" aria-label="Theme">${[['auto','Automatic'],['light','Light'],['dark','Dark']].map(([v, l]) => `<button type="button" data-act="theme" data-v="${v}" aria-pressed="${theme() === v}">${l}</button>`).join('')}</div>`}), 'Automatic follows your phone. Set on each device.')}
   ${group('Backup', link('export', 'Download a copy')
     + `<label class="row link" for="import-file">Restore from a copy…<input type="file" id="import-file" accept="application/json,.json" hidden></label>`
     + (cfg.token ? `<button type="button" class="row link danger" data-act="forget">Forget the key on this device</button>` : ''),
@@ -709,8 +720,9 @@ function viewSync(){
 function banner(){
   if (sync.conflict) return `<div class="banner"><b>Your other device saved changes</b><span>Both devices changed something since the last sync. Pick which copy to keep; the other stays in GitHub’s history.</span><div class="bbtns"><button type="button" data-act="use-remote">Use the other device’s</button><button type="button" data-act="keep-local">Keep this one</button></div></div>`;
   if (S.view === 'sync') return '';
-  if (!connected()) return `<button type="button" class="banner tap" data-view="sync"><b>Connect your private data</b><span>Add your GitHub key once on this device to load your budget and keep it in sync.</span></button>`;
-  if (S.sync === 'auth') return `<button type="button" class="banner tap warn" data-view="sync"><b>GitHub didn’t accept the key</b><span>It may have expired. Tap to paste a new one.</span></button>`;
+  if (!connected()) return `<button type="button" class="banner tap" data-view="sync"><b>Connect your private data</b><span>Tap here, paste your GitHub key once on this device, and your budget loads and stays in sync.</span></button>`;
+  if (S.sync === 'auth') return `<button type="button" class="banner tap warn" data-view="sync"><b>GitHub didn’t accept the key</b><span>It may have been copied only partly, or it has expired. Tap to paste it again.</span></button>`;
+  if (S.sync === 'norepo') return `<button type="button" class="banner tap warn" data-view="sync"><b>The key can’t see ${esc(cfg.repo)}</b><span>Check the account name, and that the key has ${esc(cfg.repo)} selected with Contents set to Read and write.</span></button>`;
   return '';
 }
 
@@ -738,7 +750,7 @@ function render(){
   document.querySelectorAll('.month-label').forEach(e => { e.textContent = monthName(key); });
   document.getElementById('tabbar').innerHTML = navHtml();
   document.getElementById('side-nav').innerHTML = navHtml();
-  const V = S.view === 'sync' ? ['sync', 'Sync', 'Sync'] : (VIEWS.find(v => v[0] === S.view) || VIEWS[0]);
+  const V = S.view === 'sync' ? ['sync', 'Settings', 'Settings'] : (VIEWS.find(v => v[0] === S.view) || VIEWS[0]);
   const body = {today:viewToday, month:viewMonth, budget:viewBudget, grow:viewGrow, sync:viewSync}[V[0]](p, R, key);
   document.getElementById('view').innerHTML = `<h1 class="large">${V[2]}</h1>` + banner() + body;
   showSync();
@@ -845,7 +857,7 @@ try { Object.assign(sync, JSON.parse(localStorage.getItem('budget-sync-state') |
 const saveSyncState = () => { try { localStorage.setItem('budget-sync-state', JSON.stringify({sha:sync.sha, dirty:sync.dirty, last:sync.last})); } catch(e) {} };
 let editRev = 0;
 
-const SYNC = {local:'Not connected', checking:'Checking…', saving:'Saving…', synced:'Synced', offline:'Offline · saved here', auth:'Key not accepted', error:'Sync failed · saved here', conflict:'Needs a choice'};
+const SYNC = {local:'Not connected', checking:'Checking…', saving:'Saving…', synced:'Synced', offline:'Offline · saved here', auth:'Key not accepted', norepo:'Repo not reachable', error:'Sync failed · saved here', conflict:'Needs a choice'};
 const showSync = () => document.querySelectorAll('.sync').forEach(e => { e.textContent = SYNC[S.sync]; e.dataset.s = S.sync; });
 const setSync = (s, redraw) => { S.sync = s; if (redraw) render(); else showSync(); };
 const connected = () => !!(cfg.token && cfg.owner && cfg.repo);
@@ -864,7 +876,12 @@ function applyRemote(doc){
 }
 async function readRemote(){
   const r = await gh('GET');
-  if (r.status === 404) return {missing:true};
+  if (r.status === 404) {
+    // "Not found" also means the key can't see the repo: tell those apart
+    const repo = await fetch(`https://api.github.com/repos/${encodeURIComponent(cfg.owner)}/${encodeURIComponent(cfg.repo)}`, {cache:'no-store', headers:{Authorization:'Bearer ' + cfg.token, Accept:'application/vnd.github+json'}});
+    if (repo.status === 401) return {auth:true};
+    return repo.ok ? {missing:true} : {norepo:true};
+  }
   if (r.status === 401 || r.status === 403) return {auth:true};
   if (!r.ok) return {error:true};
   const j = await r.json();
@@ -880,6 +897,7 @@ async function pull(){
   let res;
   try { res = await readRemote(); } catch(e) { return setSync('offline'); }
   if (res.auth) return setSync('auth', true);
+  if (res.norepo) return setSync('norepo', true);
   if (res.error) return setSync('error');
   if (res.missing) { sync.sha = null; return sync.dirty ? push() : setSync('synced'); }
   if (res.sha === sync.sha) return sync.dirty ? push() : setSync('synced', S.sync === 'auth');
@@ -919,6 +937,20 @@ function queueSave(){
   if (S.sync !== 'conflict') setSync(navigator.onLine ? 'saving' : 'offline');
 }
 
+// The boxes save as you type or paste: closing the app with the cursor still in the box keeps the key.
+let cfgTimer = null, cfgSeen = JSON.stringify([cfg.owner, cfg.repo, cfg.token]);
+function cfgEdited(el, now){
+  if (el) { cfg[el.dataset.cfg] = el.value.trim(); saveCfg(); }
+  clearTimeout(cfgTimer);
+  const go = () => {
+    const sig = JSON.stringify([cfg.owner, cfg.repo, cfg.token]);
+    if (sig === cfgSeen && !['local','auth','norepo','error'].includes(S.sync)) return;
+    cfgSeen = sig; sync.sha = null; saveSyncState(); render(); pull();
+  };
+  if (now) go(); else cfgTimer = setTimeout(go, 900);
+}
+document.addEventListener('input', e => { if (e.target.dataset && e.target.dataset.cfg) cfgEdited(e.target, false); });
+
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') { if (sync.dirty) push(); } else pull(); });
 window.addEventListener('online', () => pull());
 window.addEventListener('offline', () => setSync('offline'));
@@ -926,12 +958,7 @@ window.addEventListener('offline', () => setSync('offline'));
 // Sync settings, backup, and the choice when both devices changed
 document.addEventListener('change', e => {
   const el = e.target;
-  if (el.dataset && el.dataset.cfg) {
-    const before = cfg[el.dataset.cfg];
-    cfg[el.dataset.cfg] = el.value.trim(); saveCfg();
-    if (cfg[el.dataset.cfg] !== before) { sync.sha = null; saveSyncState(); render(); pull(); }
-    return;
-  }
+  if (el.dataset && el.dataset.cfg) { cfgEdited(el, true); return; }
   if (el.id === 'import-file' && el.files && el.files[0]) {
     el.files[0].text().then(t => {
       const doc = JSON.parse(t);
@@ -944,6 +971,8 @@ document.addEventListener('click', e => {
   const b = e.target.closest('[data-act]'); if (!b) return;
   const act = b.dataset.act;
   if (act === 'sync-now') { if (sync.dirty) push(); else pull(); }
+  if (act === 'connect') { document.querySelectorAll('[data-cfg]').forEach(i => { cfg[i.dataset.cfg] = i.value.trim(); }); saveCfg(); if (document.activeElement) document.activeElement.blur(); cfgEdited(null, true); }
+  if (act === 'theme') { setTheme(b.dataset.v); render(); }
   if (act === 'use-remote' && sync.conflict) { applyRemote(sync.conflict.doc); sync.sha = sync.conflict.sha; sync.last = sync.conflict.doc.savedAt || sync.last; sync.dirty = false; sync.conflict = null; saveSyncState(); setSync('synced', true); }
   if (act === 'keep-local' && sync.conflict) { sync.sha = sync.conflict.sha; sync.conflict = null; saveSyncState(); render(); push(); }
   if (act === 'export') {
@@ -956,7 +985,15 @@ document.addEventListener('click', e => {
   if (act === 'forget' && confirm('Forget the GitHub key on this device? Your data stays on GitHub and on this device.')) { cfg.token = ''; saveCfg(); setSync('local', true); }
 });
 
-if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) navigator.serviceWorker.register('sw.js').catch(() => {});
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+  // When a new version of the app arrives, switch to it once (never while you're typing)
+  const hadVersion = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (hadVersion && !sessionStorage.getItem('budget-updated') && !document.querySelector('input:focus')) { sessionStorage.setItem('budget-updated', '1'); location.reload(); }
+  });
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+if (theme() !== 'auto') setTheme(theme());
 S.sync = connected() ? 'checking' : 'local';
 render();
 pull();
