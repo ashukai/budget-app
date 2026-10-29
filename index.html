@@ -137,7 +137,28 @@ textarea.copyout{width:100%;min-height:170px;font:13px/1.4 ui-monospace,Menlo,mo
 .hero-in{display:flex;align-items:baseline;gap:8px;margin-top:2px}
 input.big{font-family:var(--num);font-size:42px;font-weight:700;letter-spacing:-.02em;font-variant-numeric:tabular-nums;line-height:1.1;width:auto;max-width:78%}
 input.big::placeholder{color:var(--ink)}
-.done .sd{display:none}
+.done .sd,.done .parts{display:none}
+.parts{grid-column:2 / -1;display:flex;flex-direction:column;gap:2px;margin-top:8px;font-size:13.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+.pr{display:flex;justify-content:space-between;gap:12px}
+.pr span:first-child{min-width:0;overflow-wrap:anywhere}
+.pr span:last-child{white-space:nowrap}
+.pr.tot{border-top:.5px solid var(--hair);margin-top:3px;padding-top:4px;color:var(--ink);font-weight:600}
+.sum{display:flex;flex-direction:column;margin-top:6px}
+.sl{display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:8px 0;border-top:.5px solid var(--hair);font-size:16px}
+.sum > .sl:first-child{border-top:0}
+.sl span{display:flex;flex-direction:column;gap:2px;min-width:0}
+.sl i{font-size:13px;color:var(--muted)}
+.sl b{font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
+.sl.tot{font-weight:700;font-size:18px}
+.sl.tot b{font-family:var(--num);font-size:22px;color:var(--accent)}
+details.sd2 summary{list-style:none;cursor:pointer}
+details.sd2 summary::-webkit-details-marker{display:none}
+details.sd2 .sl{border-top:.5px solid var(--hair)}
+details.sd2 .sl b::after{content:" ›";color:var(--faint)}
+details.sd2[open] .sl b::after{content:" ⌄"}
+.clist{padding:2px 0 10px;font-size:14px;color:var(--muted);font-variant-numeric:tabular-nums}
+.cg{font-weight:600;color:var(--ink);margin:8px 0 2px;font-size:13px}
+.ci{display:flex;justify-content:space-between;gap:12px;padding:1px 0}
 .hero-in span{font-size:20px;color:var(--muted);font-weight:600}
 .hero-sub{font-size:15px;color:var(--muted);margin-top:4px;line-height:1.35}
 .hero-sub i{display:block;font-size:13.5px}
@@ -330,7 +351,7 @@ function compute(p, m, wioStart){
   const income = p.salaryUsd / p.usdPerAed;            // the usual month, for the plan
   const salaryUsd = m.salaryUsd != null ? m.salaryUsd : p.salaryUsd;
   const incomeMonth = salaryUsd / p.usdPerAed;          // what actually lands this month
-  const zgEur = sum(p.zg), jpYen = sum(p.jp);
+  const zgEur = m.zgTotal != null ? +m.zgTotal : sum(p.zg), jpYen = m.jpTotal != null ? +m.jpTotal : sum(p.jp);   // this month's bill, or the usual
   const subsNbd = sum(p.subs.filter(s => s.bank === 'NBD')), subsRevo = sum(p.subs.filter(s => s.bank !== 'NBD'));
   const rows = p.fixed.map(f => {
     let orig = null, a;
@@ -357,16 +378,17 @@ function compute(p, m, wioStart){
   for (const r of rows) {
     if (r.paid) continue;
     if (r.from === 'NBD') { nbd += r.aed; nbdParts.push([r.name, r.aed]); }
-    else if (r.from === 'REVO') { revo += r.aed; revoParts.push([r.name, r.aed]); }
+    else if (r.from === 'REVO') { revo += r.aed; revoParts.push([r.eur ? r.name + ' (sent on in EUR)' : r.name, r.aed]); }
     else if (r.from === 'ZABA') { revo += r.aed; zaba += r.eurOut; zabaParts.push([r.name, r.eurOut]); revoParts.push([r.name + ' (→ ZABA)', r.aed]); }
     else if (r.from === 'SPLIT') { if (subsNbd) { nbd += subsNbd; nbdParts.push(['Subscriptions', subsNbd]); } if (subsRevo) { revo += subsRevo; revoParts.push(['Subscriptions', subsRevo]); } }
   }
   let wioOut = 0;
+  const wioParts = [];
   for (const e of extras) {
     if (!e.now) continue;
     if (e.bank === 'NBD') { nbd += e.now; nbdParts.push([e.name, e.now]); }
     else if (e.bank === 'REVO') { revo += e.now; revoParts.push([e.name, e.now]); }
-    else wioOut += e.now;
+    else { wioOut += e.now; wioParts.push([e.name, e.now]); }
   }
   // one-offs typed in for this month only
   const oneoffs = (m.oneoffs || []).filter(o => +o.amt);
@@ -375,14 +397,16 @@ function compute(p, m, wioStart){
     const v = +o.amt, nm = o.name || 'One-off';
     if (o.bank === 'NBD') { nbd += v; nbdParts.push([nm, v]); }
     else if (o.bank === 'REVO') { revo += v; revoParts.push([nm, v]); }
-    else { wioOut += v; wioOneoffs += v; }
+    else { wioOut += v; wioOneoffs += v; wioParts.push([nm, v]); }
   }
   // a bigger service-fee bill than usual at home: the extra comes from salary, the partner's share stays the same
   const serviceDxb = m.serviceDxb != null ? m.serviceDxb : p.dxb.service;
   const mortRow = row('mortdxb');
   const serviceExtra = mortRow && !mortRow.paid ? serviceDxb - p.dxb.service : 0;
   if (serviceExtra) { nbd += serviceExtra; nbdParts.push(['Service fee extra', serviceExtra]); }
-  revo += p.spendRevo; revoParts.push(['Spending money', p.spendRevo]);
+  const costsDue = nbd + revo + wioOut;   // everything to pay this month, before spending money
+  const costParts = {NBD:nbdParts.slice(), Revo:revoParts.slice(), WIO:wioParts};
+  revo += p.spendRevo; revoParts.push(['Spending money for the month', p.spendRevo]);
   const extraNbd = +m.extraNbd || 0, extraRevo = +m.extraRevo || 0;
   const nbdNeed = nbd - extraNbd, revoNeed = revo - extraRevo;
   const nbdSend = nbdNeed > 0 ? Math.ceil(nbdNeed) : 0;
@@ -405,7 +429,8 @@ function compute(p, m, wioStart){
   const saveThis = wioSav - start + toIbkr;
   return {income, rows, row, fixedTotal, extras, extrasPlan, remaining, living, save, subsNbd, subsRevo, zgEur, jpYen,
     nbdParts, revoParts, zabaParts, nbdNeed, revoNeed, nbdSend, hsbcSend, hsbcTotal, zaba, toPartner, dewaDxb,
-    extraNbd, extraRevo, start, wioAfter, wioSav, toIbkr, saveThis, wioOut, paid, oneoffs, wioOneoffs, serviceDxb, serviceExtra, salaryUsd, incomeMonth};
+    extraNbd, extraRevo, start, wioAfter, wioSav, toIbkr, saveThis, wioOut, paid, oneoffs, wioOneoffs, serviceDxb, serviceExtra, salaryUsd, incomeMonth, costsDue, costParts,
+    paidRows:rows.filter(r => r.paid), paidBefore:rows.filter(r => r.paid).reduce((t,r) => t + r.aed, 0)};
 }
 
 // WIO savings at the start of a month: typed in, or carried on from earlier months
@@ -549,6 +574,8 @@ function viewToday(p, R, key){
     <p class="hero-sub">= ${aed(R.incomeMonth)}<i>${diff ? `${diff > 0 ? '+' : '−'}${usd(Math.abs(diff))} compared with the usual ${r0(p.salaryUsd)}` : 'The usual amount. Tap the number if this month is different.'}</i></p>
   </div>
 
+  ${monthCard(p, R)}
+
   <div class="card">
     <div class="goal-top"><span>WIO savings after salary</span><b>${r0(R.wioSav)} <small>/ ${r0(p.wioGoal)} AED</small></b></div>
     <div class="track" aria-hidden="true"><i style="width:${goalPct}%"></i></div>
@@ -560,30 +587,80 @@ function viewToday(p, R, key){
   <ol class="steps">
     ${steps.map((s,i) => { const d = !!done[s.id];
       const cls = [d ? 'done' : '', s.skip ? 'skip' : '', s === next ? 'next' : '', S.justDone === s.id ? 'justdone' : ''].join(' ').trim();
-      return `<li class="${cls}"><label>${s.skip ? '' : `<input type="checkbox" id="${idOf('m.done.' + s.id)}" data-k="m.done.${s.id}"${d ? ' checked' : ''} aria-label="Done: ${esc(s.t)}">`}<span class="box" aria-hidden="true">${d ? '✓' : s.skip ? '–' : i + 1}</span><span class="st">${esc(s.t)}${s === next ? '<span class="pill">Next</span>' : ''}${s.d ? `<span class="sd">${esc(s.d)}</span>` : ''}</span><span class="sa">${s.a ? esc(s.a) : ''}</span></label></li>`; }).join('')}
+      return `<li class="${cls}"><label>${s.skip ? '' : `<input type="checkbox" id="${idOf('m.done.' + s.id)}" data-k="m.done.${s.id}"${d ? ' checked' : ''} aria-label="Done: ${esc(s.t)}">`}<span class="box" aria-hidden="true">${d ? '✓' : s.skip ? '–' : i + 1}</span><span class="st">${esc(s.t)}${s === next ? '<span class="pill">Next</span>' : ''}${s.d ? `<span class="sd">${esc(s.d)}</span>` : ''}</span><span class="sa">${s.a ? esc(s.a) : ''}</span>${partsHtml(s)}</label></li>`; }).join('')}
   </ol>
   <details class="more"><summary>Nothing to do for these</summary><ul>${autos.map(a => `<li>${esc(a)}</li>`).join('')}</ul></details>
   <div><button type="button" class="btn-plain" data-act="copy">Copy this month as text</button><div id="copybox"></div></div>`;
 }
 
+// Salary in, costs out, living money set aside: what is left is this month's saving.
+function monthCard(p, R){
+  const living = p.spendRevo + p.spendWio, already = R.extraNbd + R.extraRevo;
+  const feeEtc = R.incomeMonth - R.costsDue - living + already - R.saveThis;
+  const N = compute(p, {}, 0);
+  const line = (label, v, cap, cls) => `<div class="sl ${cls || ''}"><span>${label}${cap ? `<i>${cap}</i>` : ''}</span><b>${v}</b></div>`;
+  const costList = Object.entries(R.costParts).filter(([, l]) => l.length).map(([bank, l]) =>
+    `<div class="cg">From ${bank}</div>` + l.map(([n, v]) => `<div class="ci"><span>${esc(n)}</span><span>${r0(v)}</span></div>`).join('')).join('');
+  const why = [];
+  for (const r of R.paidRows) why.push(`+${r0(r.aed)} ${esc(r.name)} paid before salary`);
+  if (already) why.push(`+${r0(already)} already in Revo and NBD`);
+  const salaryDiff = R.incomeMonth - R.income; if (Math.abs(salaryDiff) >= 1) why.push(`${salaryDiff > 0 ? '+' : '−'}${r0(Math.abs(salaryDiff))} salary`);
+  const other = R.saveThis - R.save - R.paidBefore - already - salaryDiff;
+  if (Math.abs(other) >= 1) why.push(`${other > 0 ? '+' : '−'}${r0(Math.abs(other))} bills ${other > 0 ? 'lower' : 'higher'} than usual`);
+  return `
+  <div class="card">
+    <div class="hero-l">This month</div>
+    <div class="sum">
+      ${line('Salary', '+' + r0(R.incomeMonth))}
+      <details class="sd2"><summary>${line('Costs due this month', '−' + r0(R.costsDue), 'Tap to see them all' + (R.paidRows.length ? ` · ${R.paidRows.map(r => esc(r.name)).join(', ')} already paid` : ''))}</summary><div class="clist">${costList}</div></details>
+      ${line('Living money for the month', '−' + r0(living), `${r0(p.spendRevo)} in Revo · ${r0(p.spendWio)} in WIO`)}
+      ${Math.abs(feeEtc) >= 0.5 ? line('HSBC fee and rounding', (feeEtc > 0 ? '−' : '+') + r0(Math.abs(feeEtc))) : ''}
+      ${already ? line('Already in Revo and NBD', '+' + r0(already)) : ''}
+      ${line('Saved this month', aed(R.saveThis), '', 'tot')}
+    </div>
+    <p class="cap">A normal month saves ${aed(N.save)}.${why.length ? ' This month: ' + why.join(' · ') + '.' : ''}</p>
+  </div>`;
+}
+
 /* ---------- Month: what changed before salary ---------- */
 function viewMonth(p, R, key){
-  const m = S.months[key] || {};
+  const m = S.months[key] || {}, t = T();
+  const mortAmt = (R.row('mortdxb') || {}).aed || 0;
   const cc = p.extras.find(e => e.id === 'cc');
-  const rent = R.row('rentjp');
-  const t = T(), mortAmt = (R.row('mortdxb') || {}).aed || 0;
   const before = [
     row('WIO savings right now', num('m.wioNow', m.wioNow, {empty:true, ph:r0(R.start), label:'WIO savings right now'}), {tag:'label', unit:'AED'}),
     row('Extra money already in Revo', num('m.extraRevo', m.extraRevo, {empty:true, ph:'0', label:'Extra money already in Revo'}), {tag:'label', unit:'AED'}),
-    row('Extra money already in NBD', num('m.extraNbd', m.extraNbd, {empty:true, ph:'0', label:'Extra money already in NBD'}), {tag:'label', unit:'AED'}),
-    cc ? row('Credit card bill', num('m.ex.cc', (m.ex || {}).cc, {empty:true, ph:r0(cc.amt), label:'Credit card this month'}), {tag:'label', unit:'AED'}) : '',
-    row(esc(`${t.utility} ${t.home}`), num('m.dewaDxb', m.dewaDxb, {empty:true, ph:r0(p.dxb.dewa), label:t.utility + ' this month'}), {tag:'label', unit:'AED', cap:esc(`Paid from the ${r0(mortAmt)}; changes what ${t.partner} gets`)}),
-    row(esc(`Service fee ${t.home}`), num('m.serviceDxb', m.serviceDxb, {empty:true, ph:r0(p.dxb.service), label:'Service fee this month'}), {tag:'label', unit:'AED',
-      cap: R.serviceExtra > 0 ? `${aed(R.serviceExtra)} over the usual ${r0(p.dxb.service)} comes from this salary` : `Usually ${r0(p.dxb.service)}`})
+    row('Extra money already in NBD', num('m.extraNbd', m.extraNbd, {empty:true, ph:'0', label:'Extra money already in NBD'}), {tag:'label', unit:'AED'})
   ].join('');
-  const paid = R.rows.filter(r => !r.auto).map(r => row(esc(r.name), null, {tag:'label', cap:fromText(r), end:sw('m.paid.' + r.id, r.paid, 'Already paid: ' + r.name)})).join('');
+  // one row per bill: this month's amount where it changes, a switch where it may already be paid
+  const billRow = r => {
+    if (r.sum === 'zg') return row(esc(r.name), num('m.zgTotal', m.zgTotal, {d2:true, empty:true, ph:nf2.format(sum(p.zg)), label:r.name + ' this month, euro'}), {tag:'label', unit:'€', cap:`Usually ${nf2.format(sum(p.zg))} € · ≈ ${aed(r.aed)} this month`});
+    if (r.sum === 'jp') return row(esc(r.name), num('m.jpTotal', m.jpTotal, {empty:true, ph:nf0.format(sum(p.jp)), label:r.name + ' this month, yen'}), {tag:'label', unit:'¥', cap:`Usually ${nf0.format(sum(p.jp))} ¥ · ≈ ${aed(r.aed)} this month`});
+    if (r.sum === 'subs') return row(esc(r.name), r0(r.aed), {unit:'AED', cap:fromText(r)});
+    const amt = r.cur === 'JPY' ? jpy(r.orig) : r.cur === 'EUR' ? eur(r.orig) : aed(r.aed) + (r.eurOut != null ? ` (≈ ${eur(r.eurOut)})` : '');
+    if (r.auto) return row(esc(r.name), r0(r.aed), {unit:'AED', cap:fromText(r)});
+    return row(esc(r.name), null, {tag:'label', cap:`${amt} · ${fromText(r)}${r.paid ? ' · paid before salary' : ''}`, end:sw('m.paid.' + r.id, r.paid, 'Already paid: ' + r.name)});
+  };
+  const homeRows = row(esc(t.utility), num('m.dewaDxb', m.dewaDxb, {empty:true, ph:r0(p.dxb.dewa), label:t.utility + ' this month'}), {tag:'label', unit:'AED', cap:esc(`Paid from the ${r0(mortAmt)}; changes what ${t.partner} gets`)})
+    + row('Service fee', num('m.serviceDxb', m.serviceDxb, {empty:true, ph:r0(p.dxb.service), label:'Service fee this month'}), {tag:'label', unit:'AED',
+        cap: R.serviceExtra > 0 ? `${aed(R.serviceExtra)} over the usual ${r0(p.dxb.service)} comes from this salary` : `Usually ${r0(p.dxb.service)}`});
+  const ccRow = cc ? row('Credit card bill', num('m.ex.cc', (m.ex || {}).cc, {empty:true, ph:r0(cc.amt), label:'Credit card this month'}), {tag:'label', unit:'AED', cap:'From NBD'}) : '';
+  // bills grouped by place, in the order of your places, then the rest
+  const places = p.places || [], groups = new Map(places.map(pl => [pl, []]));
+  for (const r of R.rows) { const pl = r.place && groups.has(r.place) ? r.place : ''; if (!groups.has(pl)) groups.set(pl, []); groups.get(pl).push(r); }
+  let bills = '', ccDone = false, first = true;
+  for (const [pl, rows] of groups) {
+    if (!rows.length) continue;
+    let inner = '';
+    for (const r of rows) { if (r.id === 'mortdxb') inner += homeRows; inner += billRow(r); }
+    if (!pl && ccRow) { inner += ccRow; ccDone = true; }
+    bills += group(pl ? esc(pl) : (places.length ? 'Other' : 'Bills this month'), inner, first ? 'Switch on what you already paid before salary. Leave a box empty for the usual amount, shown in grey.' : '');
+    first = false;
+  }
+  if (!ccDone && ccRow) bills += group('Other', ccRow);
   const oo = (m.oneoffs || []).map((o,i) => row(txt(`m.oneoffs.${i}.name`, o.name, {ph:'What was it?', label:'Unexpected cost'}),
       num(`m.oneoffs.${i}.amt`, o.amt, {label:'Amount in AED'}), {unit:'AED', end:chip(`m.oneoffs.${i}.bank`, o.bank) + del('del-oneoff', i, o.name || 'cost')})).join('');
+  const rent = R.row('rentjp');
   const eurRevo = R.rows.filter(r => r.from === 'REVO' && r.eur && !r.paid);
   const transfers = [
     row('WIO → NBD', aed(R.nbdSend), {cap:R.nbdParts.map(([n]) => n).join(', ') + (R.extraNbd ? `, less ${r0(R.extraNbd)} already there` : '')}),
@@ -596,8 +673,8 @@ function viewMonth(p, R, key){
     row('Stays in WIO', aed(R.wioAfter), {cls:'total', cap:`${r0(p.spendWio)} to spend, ${r0(R.wioSav)} savings`})
   ].join('');
   return `
-  ${group('Before salary', before, 'Leave a box empty to use the usual amount, shown in grey.')}
-  ${group('Already paid this month', paid)}
+  ${group('Before salary', before)}
+  ${bills}
   ${group('Unexpected costs', oo + link('add-oneoff', 'Add an unexpected cost'), 'A repair, a gift or a fine. Tap the bank to switch between NBD, Revo and WIO; that transfer grows by the amount.')}
   ${group('Where the money goes', transfers)}
   ${group('Note', row(txt('m.note', m.note, {ph:'What you did before salary', label:'Note for this month'}), null, {tag:'label'}))}`;
@@ -734,7 +811,7 @@ function chart(A, B, M){
 
 /* ---------- Settings: theme, and where your data lives ---------- */
 // Bump together with CACHE in sw.js on every release, so phones pick it up.
-const APP_VERSION = 4, APP_DATE = '27 Oct 2026';
+const APP_VERSION = 5, APP_DATE = '29 Oct 2026';
 const theme = () => { try { return localStorage.getItem('budget-theme') || 'auto'; } catch(e) { return 'auto'; } };
 function setTheme(v){
   try { if (v === 'auto') localStorage.removeItem('budget-theme'); else localStorage.setItem('budget-theme', v); } catch(e) {}
@@ -794,34 +871,49 @@ function render(){
   document.getElementById('tabbar').innerHTML = navHtml();
   document.getElementById('side-nav').innerHTML = navHtml();
   const V = S.view === 'sync' ? ['sync', 'Settings', 'Settings'] : (VIEWS.find(v => v[0] === S.view) || VIEWS[0]);
-  const body = {today:viewToday, month:viewMonth, budget:viewBudget, grow:viewGrow, sync:viewSync}[V[0]](p, R, key);
+  const body = {today:viewToday, month:viewMonth, budget:viewBudget, grow:viewGrow, sync:viewSync}[V[0]](p, V[0] === 'budget' ? compute(p, {}, 0) : R, key);
   document.getElementById('view').innerHTML = `<h1 class="large">${V[2]}</h1>` + banner() + body;
   showSync();
   restoreFocus(keep);
 }
 
+// Each step lists what it is made of; the lines add up to the step's amount.
 function stepsFor(p, R, m){
   const st = [], lb = {...LABELS, ...(p.text || {})};
   const fee = p.hsbcFee;
-  st.push({id:'usd', t:`WIO: change ${usd(R.salaryUsd)} to AED`, a:aed(R.incomeMonth)});
-  if (R.nbdSend > 0) st.push({id:'nbd', t:'WIO → NBD', d:R.nbdParts.map(([n,v]) => `${n} ${r0(v)}`).join(' + ') + (R.extraNbd ? ` − already in NBD ${r0(R.extraNbd)}` : ''), a:aed(R.nbdSend)});
-  if (R.hsbcTotal > 0) st.push({id:'hsbc', t:'WIO → HSBC → REVO', d:`About ${r0(fee)} fee, so about ${aed(R.hsbcTotal - fee)} lands in Revo` + (R.extraRevo ? `. Already in Revo: ${aed(R.extraRevo)}` : '') + (R.toIbkr ? `. Includes ${aed(R.toIbkr)} for IBKR` : ''), a:aed(R.hsbcTotal)});
-  if (R.zaba > 0) st.push({id:'zaba', t:'REVO → ZABA in EUR', d:R.zabaParts.map(([n,v]) => `${n} ${eur(v)}`).join(' · '), a:eur(R.zaba)});
+  const tail = (parts, total) => { const d = total - parts.reduce((t, [, v]) => t + v, 0); if (Math.abs(d) >= 0.5) parts.push(['Rounded up', d]); return parts; };
+  st.push({id:'usd', t:`WIO: change ${usd(R.salaryUsd)} to AED`, d:`At ${nfr.format(1 / p.usdPerAed)} AED per USD`, a:aed(R.incomeMonth)});
+  if (R.nbdSend > 0) st.push({id:'nbd', t:'WIO → NBD', a:aed(R.nbdSend), total:R.nbdSend,
+    parts:tail([...R.nbdParts, ...(R.extraNbd ? [['Already in NBD', -R.extraNbd]] : [])], R.nbdSend)});
+  if (R.hsbcTotal > 0) st.push({id:'hsbc', t:'WIO → HSBC → REVO', d:`About ${aed(R.hsbcTotal - fee)} lands in Revo`, a:aed(R.hsbcTotal), total:R.hsbcTotal,
+    parts:tail([...R.revoParts, ...(R.extraRevo ? [['Already in Revo', -R.extraRevo]] : []), ...(R.toIbkr ? [['Savings for IBKR', R.toIbkr]] : []), ['HSBC fee, about', fee]], R.hsbcTotal)});
+  if (R.zaba > 0) st.push({id:'zaba', t:'REVO → ZABA in EUR', a:eur(R.zaba), total:R.zaba, cur:'EUR', parts:R.zabaParts.map(([n, v]) => [n, v])});
   const rent = R.row('rentjp');
   if (rent) st.push(rent.paid ? {id:'rent', t:`${rent.name} to ${lb.rentTo}`, d:'Already paid this month', a:'done', skip:true}
                               : {id:'rent', t:`REVO → ${lb.rentTo} (${rent.name})`, d:`About ${aed(rent.aed)}` + (lb.rentDue ? `. ${lb.rentDue}` : ''), a:jpy(rent.orig)});
-  for (const r of R.rows) if (r.from === 'REVO' && r.eur && !r.paid) st.push({id:'eur-' + r.id, t:`REVO → ${r.name} in EUR`, d:`About ${aed(r.aed)}`, a:eur(r.eurOut)});
-  if (R.zaba > 0) st.push({id:'zabapay', t:'ZABA: pay the euro bills', d:R.zabaParts.map(([n,v]) => `${n} ${eur(v)}`).join(' · ')});
+  for (const r of R.rows) if (r.from === 'REVO' && r.eur && !r.paid) st.push({id:'eur-' + r.id, t:`REVO → ${r.name} in EUR`, d:`${aed(r.aed)} at today’s rate`, a:eur(r.eurOut)});
+  if (R.zaba > 0) st.push({id:'zabapay', t:'ZABA: pay the euro bills', a:eur(R.zaba), total:R.zaba, cur:'EUR', parts:R.zabaParts.map(([n, v]) => [n, v])});
   const mort = R.row('mortdxb');
   if (mort && !mort.paid) {
-    st.push({id:'dxb', t:`NBD: pay internet, service fee, ${lb.utility}`, d:`Internet ${r0(p.dxb.internet)} + service fee ${r0(R.serviceDxb)} + ${lb.utility} ${r0(R.dewaDxb)}`, a:aed(p.dxb.internet + R.serviceDxb + R.dewaDxb)});
-    st.push({id:'toPartner', t:`NBD → ${lb.partner} (rest of the ${r0(mort.aed)})`, d:lb.partnerNote, a:aed(R.toPartner)});
+    const bills = p.dxb.internet + R.serviceDxb + R.dewaDxb;
+    st.push({id:'dxb', t:`NBD: pay internet, service fee, ${lb.utility}`, a:aed(bills), total:bills,
+      parts:[['Internet', p.dxb.internet], ['Service fee', R.serviceDxb], [lb.utility, R.dewaDxb]]});
+    st.push({id:'toPartner', t:`NBD → ${lb.partner}`, d:lb.partnerNote, a:aed(R.toPartner), total:R.toPartner,
+      parts:[[mort.name, mort.aed], ['Internet', -p.dxb.internet], ['Service fee (usual)', -p.dxb.service], [lb.utility, -R.dewaDxb]]});
   }
-  if (R.wioOneoffs > 0) st.push({id:'wiooff', t:'WIO: pay the unexpected costs', d:R.oneoffs.filter(o => o.bank === 'WIO').map(o => `${o.name || 'Cost'} ${r0(o.amt)}`).join(' · '), a:aed(R.wioOneoffs)});
+  if (R.wioOneoffs > 0) st.push({id:'wiooff', t:'WIO: pay the unexpected costs', a:aed(R.wioOneoffs), total:R.wioOneoffs, parts:R.oneoffs.filter(o => o.bank === 'WIO').map(o => [o.name || 'Cost', +o.amt])});
   if (R.toIbkr > 0) st.push({id:'ibkr', t:'REVO → IBKR for the ETF', d:`Savings over the ${aed(p.wioGoal)} WIO goal`, a:aed(R.toIbkr)});
   const togo = p.wioGoal - R.wioSav;
-  st.push({id:'wio', t:'Leave in WIO', d:`${aed(p.spendWio)} to spend + ${aed(R.wioSav)} savings` + (togo > 0 ? `. ${aed(togo)} more to reach ${r0(p.wioGoal)}` : `. Goal of ${r0(p.wioGoal)} reached`), a:aed(R.wioAfter)});
+  st.push({id:'wio', t:'Leave in WIO', d:`${aed(p.spendWio)} of it is spending money for the month; ${aed(R.wioSav)} is savings` + (togo > 0 ? `, ${aed(togo)} short of ${r0(p.wioGoal)}` : `, goal of ${r0(p.wioGoal)} reached`),
+    a:aed(R.wioAfter), total:R.wioAfter,
+    parts:tail([['Savings before salary', R.start], ['Salary', R.incomeMonth], ['To NBD', -R.nbdSend], ['To Revo via HSBC', -R.hsbcTotal], ...(R.wioOut ? [['Paid from WIO', -R.wioOut]] : [])], R.wioAfter)});
   return st;
+}
+// The lines under a step, with the sum at the bottom
+function partsHtml(s){
+  if (!s.parts || !s.parts.length) return '';
+  const f = v => (v < 0 ? '−' : '') + (s.cur === 'EUR' ? nf2.format(Math.abs(v)) : r0(Math.abs(v)));
+  return `<span class="parts">${s.parts.map(([n, v]) => `<span class="pr"><span>${esc(n)}</span><span>${f(v)}</span></span>`).join('')}<span class="pr tot"><span>Total</span><span>${esc(s.a)}</span></span></span>`;
 }
 
 function setPath(root, parts, val){
