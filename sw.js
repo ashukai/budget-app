@@ -1,6 +1,6 @@
 // Keeps the app on the device so it opens without a connection.
 // Your data never passes through here: it lives in the page's storage and your private repo.
-const CACHE = 'budget-app-v5';   // = APP_VERSION in index.html
+const CACHE = 'budget-app-v6';   // = APP_VERSION in index.html
 const FILES = ['./', 'index.html', 'manifest.webmanifest', 'icon-180.png', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {

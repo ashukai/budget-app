@@ -162,6 +162,10 @@ details.sd2[open] .sl b::after{content:" ⌄"}
 .hero-in span{font-size:20px;color:var(--muted);font-weight:600}
 .hero-sub{font-size:15px;color:var(--muted);margin-top:4px;line-height:1.35}
 .hero-sub i{display:block;font-size:13.5px}
+.recv{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:12px;padding:10px 12px;border-radius:10px;background:var(--fill);cursor:text}
+.recv > span:first-child{font-weight:600}
+.recv .vl{width:auto;flex:0 1 50%}
+.recv:focus-within{background:var(--accent-soft)}
 .kpi{font-family:var(--num);font-size:36px;font-weight:700;letter-spacing:-.02em;font-variant-numeric:tabular-nums;line-height:1.15;margin-top:2px}
 .goal-top{display:flex;justify-content:space-between;align-items:baseline;gap:10px;font-size:15px;color:var(--muted)}
 .goal-top b{font-family:var(--num);font-size:22px;color:var(--ink);font-variant-numeric:tabular-nums;white-space:nowrap}
@@ -348,9 +352,12 @@ function cache(){ try { localStorage.setItem('budget-savings-cache', JSON.string
 function compute(p, m, wioStart){
   m = m || {};
   const paid = m.paid || {}, ex = m.ex || {};
-  const income = p.salaryUsd / p.usdPerAed;            // the usual month, for the plan
+  const fxKeep = 1 - (+p.wioFxPct || 0) / 100;          // WIO's exchange cost, learned from the last salary you entered
+  const income = p.salaryUsd / p.usdPerAed * fxKeep;    // the usual month, for the plan
   const salaryUsd = m.salaryUsd != null ? m.salaryUsd : p.salaryUsd;
-  const incomeMonth = salaryUsd / p.usdPerAed;          // what actually lands this month
+  const midAed = salaryUsd / p.usdPerAed;               // at the market rate
+  const incomeMonth = m.aedReceived != null ? +m.aedReceived : midAed * fxKeep;   // what lands in WIO: typed in, or estimated
+  const fxLoss = midAed - incomeMonth;
   const zgEur = m.zgTotal != null ? +m.zgTotal : sum(p.zg), jpYen = m.jpTotal != null ? +m.jpTotal : sum(p.jp);   // this month's bill, or the usual
   const subsNbd = sum(p.subs.filter(s => s.bank === 'NBD')), subsRevo = sum(p.subs.filter(s => s.bank !== 'NBD'));
   const rows = p.fixed.map(f => {
@@ -429,7 +436,7 @@ function compute(p, m, wioStart){
   const saveThis = wioSav - start + toIbkr;
   return {income, rows, row, fixedTotal, extras, extrasPlan, remaining, living, save, subsNbd, subsRevo, zgEur, jpYen,
     nbdParts, revoParts, zabaParts, nbdNeed, revoNeed, nbdSend, hsbcSend, hsbcTotal, zaba, toPartner, dewaDxb,
-    extraNbd, extraRevo, start, wioAfter, wioSav, toIbkr, saveThis, wioOut, paid, oneoffs, wioOneoffs, serviceDxb, serviceExtra, salaryUsd, incomeMonth, costsDue, costParts,
+    extraNbd, extraRevo, start, wioAfter, wioSav, toIbkr, saveThis, wioOut, paid, oneoffs, wioOneoffs, serviceDxb, serviceExtra, salaryUsd, incomeMonth, midAed, fxLoss, received:m.aedReceived != null, costsDue, costParts,
     paidRows:rows.filter(r => r.paid), paidBefore:rows.filter(r => r.paid).reduce((t,r) => t + r.aed, 0)};
 }
 
@@ -571,7 +578,9 @@ function viewToday(p, R, key){
   <div class="card">
     <label class="hero-l" for="${idOf('m.salaryUsd')}">Salary this month</label>
     <div class="hero-in">${num('m.salaryUsd', m.salaryUsd, {cls:'big', empty:true, ph:r0(p.salaryUsd), label:'Salary this month in USD'})}<span>USD</span></div>
-    <p class="hero-sub">= ${aed(R.incomeMonth)}<i>${diff ? `${diff > 0 ? '+' : '−'}${usd(Math.abs(diff))} compared with the usual ${r0(p.salaryUsd)}` : 'The usual amount. Tap the number if this month is different.'}</i></p>
+    <p class="hero-sub">= ${aed(R.midAed)} at the market rate<i>${diff ? `${diff > 0 ? '+' : '−'}${usd(Math.abs(diff))} compared with the usual ${r0(p.salaryUsd)}` : 'The usual amount. Tap the number if this month is different.'}</i></p>
+    <label class="recv"><span>Received in WIO</span><span class="vl">${num('m.aedReceived', m.aedReceived, {empty:true, ph:r0(R.incomeMonth), label:'AED received in WIO'})}<span class="unit">AED</span></span></label>
+    <p class="cap">${R.fxLoss >= 0.5 ? `${R.received ? 'Exchange cost' : 'Expected exchange cost'}: ${aed(R.fxLoss)} (${nf2.format(R.fxLoss / R.midAed * 100)} %)${R.received ? '' : '. Type what arrived to see the real one.'}` : R.received ? 'No exchange cost this time.' : 'Type what arrived after the exchange to see what WIO kept.'}</p>
   </div>
 
   ${monthCard(p, R)}
@@ -611,7 +620,7 @@ function monthCard(p, R){
   <div class="card">
     <div class="hero-l">This month</div>
     <div class="sum">
-      ${line('Salary', '+' + r0(R.incomeMonth))}
+      ${line('Salary', '+' + r0(R.incomeMonth), R.fxLoss >= 0.5 ? `${usd(R.salaryUsd)} · ${r0(R.fxLoss)} ${R.received ? 'lost' : 'expected'} to the exchange` : '')}
       <details class="sd2"><summary>${line('Costs due this month', '−' + r0(R.costsDue), 'Tap to see them all' + (R.paidRows.length ? ` · ${R.paidRows.map(r => esc(r.name)).join(', ')} already paid` : ''))}</summary><div class="clist">${costList}</div></details>
       ${line('Living money for the month', '−' + r0(living), `${r0(p.spendRevo)} in Revo · ${r0(p.spendWio)} in WIO`)}
       ${Math.abs(feeEtc) >= 0.5 ? line('HSBC fee and rounding', (feeEtc > 0 ? '−' : '+') + r0(Math.abs(feeEtc))) : ''}
@@ -718,7 +727,7 @@ function viewBudget(p, R){
       <div><span class="dot" style="background:var(--accent)"></span>Saved<b class="acc">${r0(R.save)}</b></div>
     </div>
   </div>
-  ${group('Income', row('Usual salary', num('p.salaryUsd', p.salaryUsd, {label:'Usual salary in USD'}), {tag:'label', unit:'USD', sub:`= ${aed(R.income)}`}), 'Change this only if your base pay changes. Each month’s real salary goes on Today.')}
+  ${group('Income', row('Usual salary', num('p.salaryUsd', p.salaryUsd, {label:'Usual salary in USD'}), {tag:'label', unit:'USD', sub:`= ${aed(R.income)} after exchange`}) + row('WIO exchange cost', num('p.wioFxPct', p.wioFxPct, {dec:true, label:'WIO exchange cost, percent'}), {tag:'label', unit:'%', cap:'Learned each time you type what arrived'}), 'Change this only if your base pay changes. Each month’s real salary goes on Today.')}
   ${group('Fixed costs', fixed)}
   ${group('Extra costs', extras, 'Tap the bank to change where a cost is paid from.')}
   ${group('Spending money', row('Keep in WIO', num('p.spendWio', p.spendWio, {label:'Spending money kept in WIO'}), {tag:'label', unit:'AED'}) + row('Send to Revo', num('p.spendRevo', p.spendRevo, {label:'Spending money sent to Revo'}), {tag:'label', unit:'AED'}))}
@@ -811,7 +820,7 @@ function chart(A, B, M){
 
 /* ---------- Settings: theme, and where your data lives ---------- */
 // Bump together with CACHE in sw.js on every release, so phones pick it up.
-const APP_VERSION = 5, APP_DATE = '29 Oct 2026';
+const APP_VERSION = 6, APP_DATE = '31 Oct 2026';
 const theme = () => { try { return localStorage.getItem('budget-theme') || 'auto'; } catch(e) { return 'auto'; } };
 function setTheme(v){
   try { if (v === 'auto') localStorage.removeItem('budget-theme'); else localStorage.setItem('budget-theme', v); } catch(e) {}
@@ -882,7 +891,7 @@ function stepsFor(p, R, m){
   const st = [], lb = {...LABELS, ...(p.text || {})};
   const fee = p.hsbcFee;
   const tail = (parts, total) => { const d = total - parts.reduce((t, [, v]) => t + v, 0); if (Math.abs(d) >= 0.5) parts.push(['Rounded up', d]); return parts; };
-  st.push({id:'usd', t:`WIO: change ${usd(R.salaryUsd)} to AED`, d:`At ${nfr.format(1 / p.usdPerAed)} AED per USD`, a:aed(R.incomeMonth)});
+  st.push({id:'usd', t:`WIO: change ${usd(R.salaryUsd)} to AED`, d:R.received ? `${aed(R.incomeMonth)} arrived; the exchange cost ${aed(R.fxLoss)}` : `About ${aed(R.incomeMonth)} after WIO’s exchange cost`, a:aed(R.incomeMonth)});
   if (R.nbdSend > 0) st.push({id:'nbd', t:'WIO → NBD', a:aed(R.nbdSend), total:R.nbdSend,
     parts:tail([...R.nbdParts, ...(R.extraNbd ? [['Already in NBD', -R.extraNbd]] : [])], R.nbdSend)});
   if (R.hsbcTotal > 0) st.push({id:'hsbc', t:'WIO → HSBC → REVO', d:`About ${aed(R.hsbcTotal - fee)} lands in Revo`, a:aed(R.hsbcTotal), total:R.hsbcTotal,
@@ -932,6 +941,11 @@ function setKey(k, val){
   } else {
     if (!S.months[S.key]) S.months[S.key] = {};
     setPath(S.months[S.key], parts, val); queueSave('months/' + S.key);
+    if (parts[0] === 'aedReceived' && val != null) {
+      const ep = effPlan(), m = S.months[S.key], mid = (m.salaryUsd != null ? m.salaryUsd : ep.salaryUsd) / ep.usdPerAed;
+      const pct = (mid - val) / mid * 100;
+      if (pct >= 0 && pct < 3) { S.plan.wioFxPct = Math.round(pct * 1000) / 1000; queueSave('plan'); }
+    }
   }
   cache();
 }
