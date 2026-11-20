@@ -165,6 +165,9 @@ details.sd2[open] .sl b::after{content:" ⌄"}
 .verdict{margin-top:10px;font-weight:600;font-size:15px;line-height:1.35}
 .verdict.good{color:var(--accent)}
 .verdict.over{color:var(--warn)}
+.tips{margin-top:12px;border-top:.5px solid var(--hair);padding-top:10px}
+.tips-h{font-size:13px;color:var(--muted);margin-bottom:4px}
+.tips ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:6px;font-size:14.5px;line-height:1.4}
 .recv{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:12px;padding:10px 12px;border-radius:10px;background:var(--fill);cursor:text}
 .recv > span:first-child{font-weight:600}
 .recv .vl{width:auto;flex:0 1 50%}
@@ -437,7 +440,8 @@ function compute(p, m, wioStart){
     wioAfter -= (hsbcTotal - hsbcSend); wioSav = wioAfter - p.spendWio;
   }
   // Amounts already sent (kept when you tick the step). A cost that changes afterwards leaves money over, or short.
-  const sent = m.sent || {};
+  const ticked = m.done || {}, sentAll = m.sent || {};
+  const sent = {nbd:ticked.nbd ? sentAll.nbd : null, hsbc:ticked.hsbc ? sentAll.hsbc : null};
   const nbdLeft = sent.nbd != null ? +sent.nbd - nbdSend : 0;
   const hsbcLeft = sent.hsbc != null ? +sent.hsbc - hsbcTotal : 0;
   const leftOver = Math.max(0, nbdLeft) + Math.max(0, hsbcLeft);   // left WIO, sits in NBD / Revo
@@ -672,18 +676,44 @@ function reviewPrev(p, key){
   const P = compute(p, monthIn(prevKey), wioStart(prevKey));
   const r = {prevKey, plannedSave:P.saveThis};
   if (m.wioNow == null) return {...r, waiting:true};
+  const c = carryIn(key);
   r.ibkr = +m.ibkrSent || 0;
-  r.wioExtra = m.wioNow + r.ibkr - P.wioSav;
+  r.wioExtra = m.wioNow + r.ibkr - P.wioSav;          // above the plan's savings = WIO living money not spent
   r.wioSpent = p.spendWio - r.wioExtra;
-  if (m.extraRevo != null) { r.revoLeft = m.extraRevo - carryIn(key).revo; r.revoSpent = p.spendRevo - r.revoLeft; }
-  r.saved = P.saveThis + r.wioExtra + (r.revoLeft || 0);
+  if (m.extraRevo != null) { r.revoLeft = m.extraRevo - c.revo; r.revoSpent = p.spendRevo - r.revoLeft; }
+  if (m.extraNbd != null) r.nbdLeft = m.extraNbd - c.nbd;   // bills money not used
+  r.saved = P.saveThis + r.wioExtra + (r.revoLeft || 0) + (r.nbdLeft || 0);
   return r;
+}
+// Plain-arithmetic tips from your own numbers, most valuable first
+function tipsFor(p, r, key){
+  const tips = [], i = mRate(p), M = etfMoney(p), yrs = p.etf.years;
+  const later = m => `about ${M.f(fv(m, yrs * 12, i))} in IBKR after ${yrs} years`;
+  const living = p.spendWio + p.spendRevo, hist = [];
+  for (let k = 0; k < 12; k++) { const x = reviewPrev(p, addMonths(key, -k)); if (x && !x.waiting && x.revoSpent != null) hist.push(Math.max(0, x.wioSpent) + Math.max(0, x.revoSpent)); }
+  if (hist.length) {
+    const avg = hist.reduce((a, b) => a + b, 0) / hist.length, target = Math.ceil(avg / 500) * 500, over = avg - living;
+    const span = hist.length > 1 ? ` on average over ${hist.length} months` : '';
+    if (living - target >= 500) tips.push(`You used about ${aed(avg)} of your ${r0(living)} living money${span}. Setting it to ${r0(target)} (Budget → Spending money) moves ${r0(living - target)} a month to savings: ${aed((living - target) * 12)} a year, ${later(living - target)}.`);
+    else if (over >= 300) tips.push(`Living costs ran about ${aed(over)} over the ${r0(living)} you set aside${span}, mostly from ${r.wioSpent - p.spendWio >= (r.revoSpent || 0) - p.spendRevo ? 'WIO' : 'Revo'}. Either raise it so the plan matches real life, or cut back there first.`);
+  }
+  const months = Object.keys(S.months).sort().filter(k => k <= addMonths(key, -1)).slice(-6);
+  const oneoffs = months.map(k => (S.months[k].oneoffs || []).reduce((t, o) => t + (+o.amt || 0), 0));
+  const ooAvg = oneoffs.reduce((a, b) => a + b, 0) / (oneoffs.length || 1), last = oneoffs[oneoffs.length - 1] || 0;
+  if (last >= 500) tips.push(months.filter(k => (S.months[k].oneoffs || []).length).length > 1
+    ? `${aed(last)} went on unexpected costs last month, about ${aed(ooAvg)} a month lately. Planning about ${r0(Math.ceil(ooAvg / 100) * 100)} a month for surprises keeps savings from dipping.`
+    : `${aed(last)} went on unexpected costs last month. If costs like these come often, the recap will suggest a monthly amount to set aside once there are a few months to compare.`);
+  const subs = p.subs.filter(x => +x.amt > 0).sort((a, b) => b.amt - a.amt), st = subs.reduce((t, x) => t + +x.amt, 0);
+  if (st >= 300) tips.push(`Subscriptions cost ${aed(st)} a month, ${aed(st * 12)} a year. Biggest: ${subs.slice(0, 3).map(x => `${esc(x.name)} ${r0(x.amt)}`).join(', ')}. Grow → Possible savings shows what dropping each is worth.`);
+  const fx = (+p.wioFxPct || 0) / 100 * p.salaryUsd / p.usdPerAed, fees = (p.hsbcFee + fx) * 12;
+  if (fees >= 500) tips.push(`Transfer and exchange costs come to about ${aed(fees)} a year (HSBC ${r0(p.hsbcFee)} and WIO’s exchange ${r0(fx)} a month). A direct WIO → Revo route would save the HSBC part.`);
+  return tips.slice(0, 4);
 }
 function reviewCard(p, key){
   const r = reviewPrev(p, key);
   if (!r) return '';
   const name = MONTHS[+r.prevKey.slice(5) - 1];
-  if (r.waiting) return `<button type="button" class="banner tap" data-view="month"><b>How did ${name} go?</b><span>Before this salary, type your WIO balance and anything you sent to IBKR in Month. You'll see what you spent and saved.</span></button>`;
+  if (r.waiting) return `<button type="button" class="banner tap" data-view="month"><b>How did ${name} go?</b><span>Just before this salary, type what’s left in WIO, Revo and NBD, and anything you sent to IBKR, in Month. You’ll get a short recap and tips.</span></button>`;
   const line = (label, v, cap, cls) => `<div class="sl ${cls || ''}"><span>${label}${cap ? `<i>${cap}</i>` : ''}</span><b>${v}</b></div>`;
   const spent = (v, budget) => v < 0 ? `none of ${r0(budget)}` : `${r0(v)} of ${r0(budget)}`;
   const known = r.revoSpent != null;
@@ -691,17 +721,21 @@ function reviewCard(p, key){
   const used = Math.max(0, r.wioSpent) + (known ? Math.max(0, r.revoSpent) : 0);
   const d = budget - used;
   const verdict = Math.abs(d) < 50 ? ['ok', `Right on plan: you spent about what you set aside${known ? '' : ' in WIO'}.`]
-    : d > 0 ? ['good', `You spent about ${aed(d)} less than planned${known ? '' : ' from WIO'}. That's extra savings.`]
+    : d > 0 ? ['good', `You spent about ${aed(d)} less than planned${known ? '' : ' from WIO'}. That’s extra savings.`]
     : ['over', `You spent about ${aed(-d)} more than planned${known ? '' : ' from WIO'}. It came out of your savings.`];
+  const tips = tipsFor(p, r, key);
   return `
   <div class="card">
     <div class="hero-l">How ${name} went</div>
     <div class="sum">
       ${line('WIO living money spent', spent(r.wioSpent, p.spendWio), r.wioSpent < 0 ? `${aed(-r.wioSpent)} more in WIO than expected. Did money come in from elsewhere?` : '')}
       ${line('Revo living money spent', known ? spent(r.revoSpent, p.spendRevo) : '–', known ? `${aed(Math.max(0, r.revoLeft))} still in Revo` : 'Type what’s left in Revo in Month to see this')}
-      ${line(`Saved in ${name}`, '≈ ' + aed(r.saved), `The plan said ${aed(r.plannedSave)}${r.ibkr ? ` · ${aed(r.ibkr)} of it went to IBKR; update the balance in Grow` : ''}`, 'tot')}
+      ${r.nbdLeft != null ? line('Bills money left in NBD', r0(Math.max(0, r.nbdLeft)), r.nbdLeft >= 1 ? 'Bills came in lower than planned; it’s used for this month’s bills' : r.nbdLeft <= -1 ? `${aed(-r.nbdLeft)} less than expected: a bill was higher, or NBD paid something else` : 'Exactly as planned') : ''}
+      ${r.ibkr ? line('Sent to IBKR', '+' + r0(r.ibkr), 'Saved, not spent. Update the balance in Grow') : ''}
+      ${line(`Saved in ${name}`, '≈ ' + aed(r.saved), `The plan said ${aed(r.plannedSave)}`, 'tot')}
     </div>
     <p class="verdict ${verdict[0]}">${verdict[1]}</p>
+    ${tips.length ? `<div class="tips"><div class="tips-h">Tips</div><ul>${tips.map(t => `<li>${t}</li>`).join('')}</ul></div>` : ''}
   </div>`;
 }
 
@@ -711,10 +745,10 @@ function viewMonth(p, R, key){
   const mortAmt = (R.row('mortdxb') || {}).aed || 0;
   const cc = p.extras.find(e => e.id === 'cc');
   const before = [
-    row('WIO balance right now', num('m.wioNow', m.wioNow, {empty:true, ph:r0(R.start), label:'WIO balance right now'}), {tag:'label', unit:'AED', cap:'Everything in WIO before this salary, left-over spending money included'}),
-    row('Sent to IBKR since last salary', num('m.ibkrSent', m.ibkrSent, {empty:true, ph:'0', label:'Sent to IBKR since last salary'}), {tag:'label', unit:'AED', cap:'From WIO; counted as saved, not spent'}),
-    row('Extra money already in Revo', num('m.extraRevo', m.extraRevo, {empty:true, ph:r0(carry.revo), label:'Extra money already in Revo'}), {tag:'label', unit:'AED', cap:carry.revo && m.extraRevo == null ? `Left over from ${monthName(carry.from)}` : ''}),
-    row('Extra money already in NBD', num('m.extraNbd', m.extraNbd, {empty:true, ph:r0(carry.nbd), label:'Extra money already in NBD'}), {tag:'label', unit:'AED', cap:carry.nbd && m.extraNbd == null ? `Left over from ${monthName(carry.from)}` : ''})
+    row('Left in WIO right now', num('m.wioNow', m.wioNow, {empty:true, ph:r0(R.start), label:'Left in WIO right now'}), {tag:'label', unit:'AED', cap:'Everything in WIO before this salary'}),
+    row('Left in Revo right now', num('m.extraRevo', m.extraRevo, {empty:true, ph:r0(carry.revo), label:'Left in Revo right now'}), {tag:'label', unit:'AED', cap:carry.revo && m.extraRevo == null ? `${r0(carry.revo)} left over from ${monthName(carry.from)}'s transfer` : 'Used first for this month, so less is sent'}),
+    row('Left in NBD right now', num('m.extraNbd', m.extraNbd, {empty:true, ph:r0(carry.nbd), label:'Left in NBD right now'}), {tag:'label', unit:'AED', cap:carry.nbd && m.extraNbd == null ? `${r0(carry.nbd)} left over from ${monthName(carry.from)}'s transfer` : 'Used first for this month, so less is sent'}),
+    row('Sent to IBKR since last salary', num('m.ibkrSent', m.ibkrSent, {empty:true, ph:'0', label:'Sent to IBKR since last salary'}), {tag:'label', unit:'AED', cap:'Counted as saved, not spent'})
   ].join('');
   // one row per bill: this month's amount where it changes, a switch where it may already be paid
   const billRow = r => {
@@ -747,8 +781,8 @@ function viewMonth(p, R, key){
   const rent = R.row('rentjp');
   const eurRevo = R.rows.filter(r => r.from === 'REVO' && r.eur && !r.paid);
   const transfers = [
-    row('WIO → NBD', aed(R.sentNbd != null ? R.sentNbd : R.nbdSend), {cap:(R.nbdLeft >= 0.5 ? `${r0(R.nbdLeft)} left over in NBD · ` : R.nbdLeft <= -0.5 ? `${r0(-R.nbdLeft)} still to send · ` : '') + R.nbdParts.map(([n]) => n).join(', ') + (R.extraNbd ? `, less ${r0(R.extraNbd)} already there` : '')}),
-    row('WIO → HSBC → Revo', aed(R.sentHsbc != null ? R.sentHsbc : R.hsbcTotal), {cap:(R.hsbcLeft >= 0.5 ? `${r0(R.hsbcLeft)} left over in Revo · ` : R.hsbcLeft <= -0.5 ? `${r0(-R.hsbcLeft)} still to send · ` : '') + `About ${r0(p.hsbcFee)} fee on the way${R.extraRevo ? `, less ${r0(R.extraRevo)} already in Revo` : ''}`}),
+    row('WIO → NBD', num('m.sent.nbd', (m.sent || {}).nbd, {empty:true, ph:r0(R.nbdSend), label:'Actually sent to NBD'}), {tag:'label', unit:'AED', cap:'Actually sent (grey = the plan) · ' + (R.nbdLeft >= 0.5 ? `${r0(R.nbdLeft)} left over in NBD · ` : R.nbdLeft <= -0.5 ? `${r0(-R.nbdLeft)} still to send · ` : '') + R.nbdParts.map(([n]) => n).join(', ') + (R.extraNbd ? `, less ${r0(R.extraNbd)} already there` : '')}),
+    row('WIO → HSBC → Revo', num('m.sent.hsbc', (m.sent || {}).hsbc, {empty:true, ph:r0(R.hsbcTotal), label:'Actually sent to Revo'}), {tag:'label', unit:'AED', cap:'Actually sent · ' + (R.hsbcLeft >= 0.5 ? `${r0(R.hsbcLeft)} left over in Revo · ` : R.hsbcLeft <= -0.5 ? `${r0(-R.hsbcLeft)} still to send · ` : '') + `About ${r0(p.hsbcFee)} fee on the way${R.extraRevo ? `, less ${r0(R.extraRevo)} already in Revo` : ''}`}),
     R.zaba > 0 ? row('Revo → ZABA', eur(R.zaba), {cap:R.zabaParts.map(([n]) => n).join(', ')}) : '',
     ...eurRevo.map(r => row(`Revo → ${esc(r.name)}`, eur(r.eurOut), {cap:'Sent in EUR'})),
     rent ? row(esc(`Revo → ${t.rentTo}`), rent.paid ? '<span class="acc">Paid</span>' : jpy(rent.orig), {cap:esc(rent.name)}) : '',
@@ -757,7 +791,7 @@ function viewMonth(p, R, key){
     row('Stays in WIO', aed(R.wioAfter), {cls:'total', cap:`${r0(p.spendWio)} to spend, ${r0(R.wioSav)} savings`})
   ].join('');
   return `
-  ${group('Before salary', before)}
+  ${group('Before salary', before, 'Type these just before salary day: they set this month’s transfers and show how last month went on Today.')}
   ${bills}
   ${group('Unexpected costs', oo + link('add-oneoff', 'Add an unexpected cost'), 'A repair, a gift or a fine. Tap the bank to switch between NBD, Revo and WIO; that transfer grows by the amount.')}
   ${group('Where the money goes', transfers)}
@@ -895,7 +929,7 @@ function chart(A, B, M){
 
 /* ---------- Settings: theme, and where your data lives ---------- */
 // Bump together with CACHE in sw.js on every release, so phones pick it up.
-const APP_VERSION = 8, APP_DATE = '21 Nov 2026';
+const APP_VERSION = 9, APP_DATE = '21 Nov 2026';
 const theme = () => { try { return localStorage.getItem('budget-theme') || 'auto'; } catch(e) { return 'auto'; } };
 function setTheme(v){
   try { if (v === 'auto') localStorage.removeItem('budget-theme'); else localStorage.setItem('budget-theme', v); } catch(e) {}
@@ -1030,9 +1064,10 @@ function setKey(k, val){
       m.sent = m.sent || {};
       if (parts[1].endsWith('-more')) { if (val) m.sent[id] = id === 'nbd' ? R.nbdSend : R.hsbcTotal; delete m.done[parts[1]]; }
       else if (val) { if (m.sent[id] == null) m.sent[id] = id === 'nbd' ? R.nbdSend : R.hsbcTotal; }
-      else delete m.sent[id];
+      // unticking keeps the amount, so ticking again restores what you really sent
       queueSave('months/' + S.key);
     }
+    if (parts[0] === 'sent' && val != null) { const m = S.months[S.key]; m.done = m.done || {}; m.done[parts[1]] = true; queueSave('months/' + S.key); }
     if (parts[0] === 'aedReceived' && val != null) {
       const ep = effPlan(), m = S.months[S.key], mid = (m.salaryUsd != null ? m.salaryUsd : ep.salaryUsd) / ep.usdPerAed;
       const pct = (mid - val) / mid * 100;
