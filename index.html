@@ -162,6 +162,9 @@ details.sd2[open] .sl b::after{content:" ⌄"}
 .hero-in span{font-size:20px;color:var(--muted);font-weight:600}
 .hero-sub{font-size:15px;color:var(--muted);margin-top:4px;line-height:1.35}
 .hero-sub i{display:block;font-size:13.5px}
+.verdict{margin-top:10px;font-weight:600;font-size:15px;line-height:1.35}
+.verdict.good{color:var(--accent)}
+.verdict.over{color:var(--warn)}
 .recv{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:12px;padding:10px 12px;border-radius:10px;background:var(--fill);cursor:text}
 .recv > span:first-child{font-weight:600}
 .recv .vl{width:auto;flex:0 1 50%}
@@ -601,6 +604,7 @@ function viewToday(p, R, key){
   ].filter(Boolean).join('\n');
 
   return `
+  ${reviewCard(p, key)}
   <div class="card">
     <label class="hero-l" for="${idOf('m.salaryUsd')}">Salary this month</label>
     <div class="hero-in">${num('m.salaryUsd', m.salaryUsd, {cls:'big', empty:true, ph:r0(p.salaryUsd), label:'Salary this month in USD'})}<span>USD</span></div>
@@ -659,13 +663,56 @@ function monthCard(p, R){
   </div>`;
 }
 
+// How last month went: the balances you typed before this salary against what the plan expected.
+// Money still in WIO above the plan's savings, or still in Revo, is living money you didn't spend.
+function reviewPrev(p, key){
+  const prevKey = addMonths(key, -1);
+  if (!S.months[prevKey]) return null;
+  const m = S.months[key] || {};
+  const P = compute(p, monthIn(prevKey), wioStart(prevKey));
+  const r = {prevKey, plannedSave:P.saveThis};
+  if (m.wioNow == null) return {...r, waiting:true};
+  r.ibkr = +m.ibkrSent || 0;
+  r.wioExtra = m.wioNow + r.ibkr - P.wioSav;
+  r.wioSpent = p.spendWio - r.wioExtra;
+  if (m.extraRevo != null) { r.revoLeft = m.extraRevo - carryIn(key).revo; r.revoSpent = p.spendRevo - r.revoLeft; }
+  r.saved = P.saveThis + r.wioExtra + (r.revoLeft || 0);
+  return r;
+}
+function reviewCard(p, key){
+  const r = reviewPrev(p, key);
+  if (!r) return '';
+  const name = MONTHS[+r.prevKey.slice(5) - 1];
+  if (r.waiting) return `<button type="button" class="banner tap" data-view="month"><b>How did ${name} go?</b><span>Before this salary, type your WIO balance and anything you sent to IBKR in Month. You'll see what you spent and saved.</span></button>`;
+  const line = (label, v, cap, cls) => `<div class="sl ${cls || ''}"><span>${label}${cap ? `<i>${cap}</i>` : ''}</span><b>${v}</b></div>`;
+  const spent = (v, budget) => v < 0 ? `none of ${r0(budget)}` : `${r0(v)} of ${r0(budget)}`;
+  const known = r.revoSpent != null;
+  const budget = p.spendWio + (known ? p.spendRevo : 0);
+  const used = Math.max(0, r.wioSpent) + (known ? Math.max(0, r.revoSpent) : 0);
+  const d = budget - used;
+  const verdict = Math.abs(d) < 50 ? ['ok', `Right on plan: you spent about what you set aside${known ? '' : ' in WIO'}.`]
+    : d > 0 ? ['good', `You spent about ${aed(d)} less than planned${known ? '' : ' from WIO'}. That's extra savings.`]
+    : ['over', `You spent about ${aed(-d)} more than planned${known ? '' : ' from WIO'}. It came out of your savings.`];
+  return `
+  <div class="card">
+    <div class="hero-l">How ${name} went</div>
+    <div class="sum">
+      ${line('WIO living money spent', spent(r.wioSpent, p.spendWio), r.wioSpent < 0 ? `${aed(-r.wioSpent)} more in WIO than expected. Did money come in from elsewhere?` : '')}
+      ${line('Revo living money spent', known ? spent(r.revoSpent, p.spendRevo) : '–', known ? `${aed(Math.max(0, r.revoLeft))} still in Revo` : 'Type what’s left in Revo in Month to see this')}
+      ${line(`Saved in ${name}`, '≈ ' + aed(r.saved), `The plan said ${aed(r.plannedSave)}${r.ibkr ? ` · ${aed(r.ibkr)} of it went to IBKR; update the balance in Grow` : ''}`, 'tot')}
+    </div>
+    <p class="verdict ${verdict[0]}">${verdict[1]}</p>
+  </div>`;
+}
+
 /* ---------- Month: what changed before salary ---------- */
 function viewMonth(p, R, key){
   const m = S.months[key] || {}, t = T(), carry = carryIn(key);
   const mortAmt = (R.row('mortdxb') || {}).aed || 0;
   const cc = p.extras.find(e => e.id === 'cc');
   const before = [
-    row('WIO savings right now', num('m.wioNow', m.wioNow, {empty:true, ph:r0(R.start), label:'WIO savings right now'}), {tag:'label', unit:'AED'}),
+    row('WIO balance right now', num('m.wioNow', m.wioNow, {empty:true, ph:r0(R.start), label:'WIO balance right now'}), {tag:'label', unit:'AED', cap:'Everything in WIO before this salary, left-over spending money included'}),
+    row('Sent to IBKR since last salary', num('m.ibkrSent', m.ibkrSent, {empty:true, ph:'0', label:'Sent to IBKR since last salary'}), {tag:'label', unit:'AED', cap:'From WIO; counted as saved, not spent'}),
     row('Extra money already in Revo', num('m.extraRevo', m.extraRevo, {empty:true, ph:r0(carry.revo), label:'Extra money already in Revo'}), {tag:'label', unit:'AED', cap:carry.revo && m.extraRevo == null ? `Left over from ${monthName(carry.from)}` : ''}),
     row('Extra money already in NBD', num('m.extraNbd', m.extraNbd, {empty:true, ph:r0(carry.nbd), label:'Extra money already in NBD'}), {tag:'label', unit:'AED', cap:carry.nbd && m.extraNbd == null ? `Left over from ${monthName(carry.from)}` : ''})
   ].join('');
@@ -848,7 +895,7 @@ function chart(A, B, M){
 
 /* ---------- Settings: theme, and where your data lives ---------- */
 // Bump together with CACHE in sw.js on every release, so phones pick it up.
-const APP_VERSION = 7, APP_DATE = '3 Nov 2026';
+const APP_VERSION = 8, APP_DATE = '21 Nov 2026';
 const theme = () => { try { return localStorage.getItem('budget-theme') || 'auto'; } catch(e) { return 'auto'; } };
 function setTheme(v){
   try { if (v === 'auto') localStorage.removeItem('budget-theme'); else localStorage.setItem('budget-theme', v); } catch(e) {}
