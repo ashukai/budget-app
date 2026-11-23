@@ -475,7 +475,7 @@ const resetMemo = () => { memo.w.clear(); memo.m.clear(); };
 function carryIn(key){
   const prev = addMonths(key, -1);
   if (!S.months[prev]) return {nbd:0, revo:0, from:prev};
-  const R = compute(effPlan(), monthIn(prev), wioStart(prev));
+  const R = compute(planFor(prev), monthIn(prev), wioStart(prev));
   return {nbd:Math.max(0, Math.round(R.nbdLeft)), revo:Math.max(0, Math.round(R.hsbcLeft)), from:prev};
 }
 // A month as typed, with last month's left-overs filled in where you typed nothing
@@ -483,7 +483,7 @@ function monthIn(key){
   if (memo.m.has(key)) return memo.m.get(key);
   const m = S.months[key] || {}, c = carryIn(key);
   const out = {...m, extraNbd:m.extraNbd != null ? m.extraNbd : (c.nbd || undefined), extraRevo:m.extraRevo != null ? m.extraRevo : (c.revo || undefined), carried:c,
-    direct:!!S.plan.partnerDirectFrom && key >= S.plan.partnerDirectFrom};
+    direct:(from => !!from && key >= from)(m.frozen ? m.frozen.partnerDirectFrom : S.plan.partnerDirectFrom)};
   memo.m.set(key, out); return out;
 }
 function wioStart(key, depth = 0){
@@ -498,7 +498,8 @@ function wioStartRaw(key, depth){
   for (let k = 1; k <= 24 - depth; k++) { if (S.months[addMonths(key,-k)]) { back = k; break; } }
   if (back == null) return S.plan.wioSavings;
   const prev = addMonths(key, -1);
-  return Math.min(compute(effPlan(), monthIn(prev), wioStart(prev, depth + 1)).wioSav, S.plan.wioGoal);
+  const q = planFor(prev);
+  return Math.min(compute(q, monthIn(prev), wioStart(prev, depth + 1)).wioSav, q.wioGoal);
 }
 
 function ideasList(p){
@@ -526,6 +527,24 @@ function effPlan(){
   e.ibkrNow = (+h.amt || 0) / rateOf(e, h.cur);
   return e;
 }
+/* ---------- past months keep the amounts and rates they had ---------- */
+const RATES = ['usdPerAed', 'eurPerAed', 'aedPerJpy'];
+const FROZEN = ['salaryUsd', ...RATES, 'fixed', 'zg', 'jp', 'dxb', 'subs', 'extras', 'hsbcFee', 'spendRevo', 'spendWio', 'wioGoal', 'wioFxPct', 'partnerDirectFrom', 'places'];
+const pick = (o, ks) => clone(Object.fromEntries(ks.filter(k => o[k] !== undefined).map(k => [k, o[k]])));
+const currentKey = () => { const t = new Date(), d = t.getDate() >= 15 ? t : new Date(t.getFullYear(), t.getMonth() - 1, 1); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); };
+// The plan a month is worked out from: frozen when it is over; the rates of its transfer day once transfers have begun
+function planFor(key){
+  const m = S.months[key] || {}, e = effPlan();
+  return m.frozen ? {...e, ...m.frozen} : m.rates ? {...e, ...m.rates} : e;
+}
+// Called before the plan changes and when a new month has begun
+function freezePast(){
+  const now = currentKey(); let changed = false;
+  for (const k of Object.keys(S.months)) if (k < now && !S.months[k].frozen) { S.months[k].frozen = pick(planFor(k), FROZEN); changed = true; }
+  if (changed) resetMemo();
+  return changed;
+}
+const settlePast = () => { if (freezePast()) { cache(); queueSave(); render(); } };
 const sane = r => r.usdPerAed > 0.25 && r.usdPerAed < 0.3 && r.eurPerAed > 0.15 && r.eurPerAed < 0.4 && r.aedPerJpy > 0.01 && r.aedPerJpy < 0.05;
 async function refreshRates(force){
   const today = new Date().toISOString().slice(0, 10);
@@ -689,14 +708,14 @@ function reviewPrev(p, key){
   const prevKey = addMonths(key, -1);
   if (!S.months[prevKey]) return null;
   const m = S.months[key] || {};
-  const P = compute(p, monthIn(prevKey), wioStart(prevKey));
-  const r = {prevKey, plannedSave:P.saveThis};
+  const q = planFor(prevKey), P = compute(q, monthIn(prevKey), wioStart(prevKey));
+  const r = {prevKey, plannedSave:P.saveThis, spendWio:q.spendWio, spendRevo:q.spendRevo};
   if (m.wioNow == null) return {...r, waiting:true};
   const c = carryIn(key);
   r.ibkr = +m.ibkrSent || 0;
   r.wioExtra = m.wioNow + r.ibkr - P.wioSav;          // above the plan's savings = WIO living money not spent
-  r.wioSpent = p.spendWio - r.wioExtra;
-  if (m.extraRevo != null) { r.revoLeft = m.extraRevo - c.revo; r.revoSpent = p.spendRevo - r.revoLeft; }
+  r.wioSpent = q.spendWio - r.wioExtra;
+  if (m.extraRevo != null) { r.revoLeft = m.extraRevo - c.revo; r.revoSpent = q.spendRevo - r.revoLeft; }
   if (m.extraNbd != null) r.nbdLeft = m.extraNbd - c.nbd;   // bills money not used
   r.saved = P.saveThis + r.wioExtra + (r.revoLeft || 0) + (r.nbdLeft || 0);
   return r;
@@ -733,7 +752,7 @@ function reviewCard(p, key){
   const line = (label, v, cap, cls) => `<div class="sl ${cls || ''}"><span>${label}${cap ? `<i>${cap}</i>` : ''}</span><b>${v}</b></div>`;
   const spent = (v, budget) => v < 0 ? `none of ${r0(budget)}` : `${r0(v)} of ${r0(budget)}`;
   const known = r.revoSpent != null;
-  const budget = p.spendWio + (known ? p.spendRevo : 0);
+  const budget = r.spendWio + (known ? r.spendRevo : 0);
   const used = Math.max(0, r.wioSpent) + (known ? Math.max(0, r.revoSpent) : 0);
   const d = budget - used;
   const verdict = Math.abs(d) < 50 ? ['ok', `Right on plan: you spent about what you set aside${known ? '' : ' in WIO'}.`]
@@ -744,8 +763,8 @@ function reviewCard(p, key){
   <div class="card">
     <div class="hero-l">How ${name} went</div>
     <div class="sum">
-      ${line('WIO living money spent', spent(r.wioSpent, p.spendWio), r.wioSpent < 0 ? `${aed(-r.wioSpent)} more in WIO than expected. Did money come in from elsewhere?` : '')}
-      ${line('Revo living money spent', known ? spent(r.revoSpent, p.spendRevo) : '–', known ? `${aed(Math.max(0, r.revoLeft))} still in Revo` : 'Type what’s left in Revo in Month to see this')}
+      ${line('WIO living money spent', spent(r.wioSpent, r.spendWio), r.wioSpent < 0 ? `${aed(-r.wioSpent)} more in WIO than expected. Did money come in from elsewhere?` : '')}
+      ${line('Revo living money spent', known ? spent(r.revoSpent, r.spendRevo) : '–', known ? `${aed(Math.max(0, r.revoLeft))} still in Revo` : 'Type what’s left in Revo in Month to see this')}
       ${r.nbdLeft != null ? line('Bills money left in NBD', r0(Math.max(0, r.nbdLeft)), r.nbdLeft >= 1 ? 'Bills came in lower than planned; it’s used for this month’s bills' : r.nbdLeft <= -1 ? `${aed(-r.nbdLeft)} less than expected: a bill was higher, or NBD paid something else` : 'Exactly as planned') : ''}
       ${r.ibkr ? line('Sent to IBKR', '+' + r0(r.ibkr), 'Saved, not spent. Update the balance in Grow') : ''}
       ${line(`Saved in ${name}`, '≈ ' + aed(r.saved), `The plan said ${aed(r.plannedSave)}`, 'tot')}
@@ -947,7 +966,7 @@ function chart(A, B, M){
 
 /* ---------- Settings: theme, and where your data lives ---------- */
 // Bump together with CACHE in sw.js on every release, so phones pick it up.
-const APP_VERSION = 10, APP_DATE = '24 Nov 2026';
+const APP_VERSION = 11, APP_DATE = '24 Nov 2026';
 const theme = () => { try { return localStorage.getItem('budget-theme') || 'auto'; } catch(e) { return 'auto'; } };
 function setTheme(v){
   try { if (v === 'auto') localStorage.removeItem('budget-theme'); else localStorage.setItem('budget-theme', v); } catch(e) {}
@@ -1002,8 +1021,8 @@ function navHtml(){ return VIEWS.map(([id, label]) => `<button type="button" dat
 function render(){
   const keep = snapFocus();
   resetMemo();
-  const p = effPlan(), key = S.key;
-  const R = compute(p, monthIn(key), wioStart(key));
+  const key = S.key, own = planFor(key), R = compute(own, monthIn(key), wioStart(key));
+  const p = S.view === 'today' || S.view === 'month' ? own : effPlan();   // Budget and Grow always show the plan as it is now
   document.querySelectorAll('.month-label').forEach(e => { e.textContent = monthName(key); });
   document.getElementById('tabbar').innerHTML = navHtml();
   document.getElementById('side-nav').innerHTML = navHtml();
@@ -1078,6 +1097,7 @@ function setPath(root, parts, val){
 function setKey(k, val){
   const [root, ...parts] = k.split('.');
   if (root === 'p') {
+    freezePast();
     if (parts[0] === 'etf' && parts[1] === 'years') val = Math.max(1, Math.min(40, Math.round(val || 1)));
     if (parts[0] === 'ratesAuto') val = !!val;
     if (parts[0] === 'partnerDirectFrom') val = val ? S.key : '';
@@ -1086,10 +1106,14 @@ function setKey(k, val){
   } else {
     if (!S.months[S.key]) S.months[S.key] = {};
     setPath(S.months[S.key], parts, val); queueSave('months/' + S.key);
+    if ((parts[0] === 'done' && ['usd', 'hsbc'].includes(parts[1])) || parts[0] === 'aedReceived') {
+      const m = S.months[S.key], begun = (m.done || {}).usd || (m.done || {}).hsbc || m.aedReceived != null;
+      if (begun && !m.rates && !m.frozen) m.rates = pick(effPlan(), RATES); else if (!begun) delete m.rates;
+    }
     const SENT_ID = {nbd:'nbd', 'nbd-more':'nbd', hsbc:'hsbc', 'hsbc-more':'hsbc', toPartner:'partner', 'partner-more':'partner'};
     if (parts[0] === 'done' && SENT_ID[parts[1]]) {
       const m = S.months[S.key], id = SENT_ID[parts[1]];
-      resetMemo(); const R = compute(effPlan(), monthIn(S.key), wioStart(S.key));
+      resetMemo(); const R = compute(planFor(S.key), monthIn(S.key), wioStart(S.key));
       const planned = {nbd:R.nbdSend, hsbc:R.hsbcTotal, partner:R.toPartner}[id];
       m.sent = m.sent || {}; m.sentMode = m.sentMode || {};
       if (id !== 'partner' || R.direct) {
@@ -1102,9 +1126,9 @@ function setKey(k, val){
     }
     if (parts[0] === 'sent' && val != null) { const m = S.months[S.key]; m.done = m.done || {}; m.done[parts[1] === 'partner' ? 'toPartner' : parts[1]] = true; m.sentMode = m.sentMode || {}; if (parts[1] === 'nbd') m.sentMode.nbd = !!monthIn(S.key).direct; queueSave('months/' + S.key); }
     if (parts[0] === 'aedReceived' && val != null) {
-      const ep = effPlan(), m = S.months[S.key], mid = (m.salaryUsd != null ? m.salaryUsd : ep.salaryUsd) / ep.usdPerAed;
+      const ep = planFor(S.key), m = S.months[S.key], mid = (m.salaryUsd != null ? m.salaryUsd : ep.salaryUsd) / ep.usdPerAed;
       const pct = (mid - val) / mid * 100;
-      if (pct >= 0 && pct < 3) { S.plan.wioFxPct = Math.round(pct * 1000) / 1000; queueSave('plan'); }
+      if (pct >= 0 && pct < 3 && !m.frozen) { freezePast(); S.plan.wioFxPct = Math.round(pct * 1000) / 1000; queueSave('plan'); }
     }
   }
   cache();
@@ -1135,7 +1159,7 @@ document.addEventListener('click', e => {
   const nav = e.target.closest('[data-view]'); if (nav) { setView(nav.dataset.view); return; }
   const b = e.target.closest('[data-act]'); if (!b) return;
   const act = b.dataset.act;
-  const listEdit = (path, fn) => { fn(); queueSave(path); cache(); render(); };
+  const listEdit = (path, fn) => { freezePast(); fn(); queueSave(path); cache(); render(); };
   if (act === 'prev' || act === 'next') { S.key = addMonths(S.key, act === 'prev' ? -1 : 1); render(); return; }
   if (act === 'cycle') { const opts = b.dataset.opts.split(','); const cur = b.textContent.trim(); setKey(b.dataset.k, opts[(opts.indexOf(cur) + 1) % opts.length]); render(); return; }
   if (act === 'seg') { setKey(b.dataset.k, b.dataset.v); render(); return; }
@@ -1211,8 +1235,8 @@ async function pull(){
   if (res.norepo) return setSync('norepo', true);
   if (res.error) return setSync('error');
   if (res.missing) { sync.sha = null; return sync.dirty ? push() : setSync('synced'); }
-  if (res.sha === sync.sha) return sync.dirty ? push() : setSync('synced', S.sync === 'auth');
-  if (!sync.dirty) { applyRemote(res.doc); sync.sha = res.sha; sync.last = res.doc.savedAt || sync.last; saveSyncState(); return setSync('synced', true); }
+  if (res.sha === sync.sha) { if (sync.dirty) return push(); setSync('synced', S.sync === 'auth'); return settlePast(); }
+  if (!sync.dirty) { applyRemote(res.doc); sync.sha = res.sha; sync.last = res.doc.savedAt || sync.last; saveSyncState(); setSync('synced', true); return settlePast(); }
   sync.conflict = res; setSync('conflict', true);
 }
 
