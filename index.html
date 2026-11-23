@@ -297,6 +297,7 @@ const DEFAULT_PLAN = {
   wioSavings: 0, wioGoal: 30000, ibkrNow: 0,
   etf: {ret:7, years:10, bonus:0, cur:'EUR'},
   ratesAuto: true,
+  partnerDirectFrom: '2026-11',   // from this month the partner's share goes straight from WIO; '' = through NBD
   ideas: {}
 };
 // Words that name people and places live in your data (plan.text), not in this public code.
@@ -388,9 +389,15 @@ function compute(p, m, wioStart){
   // what has to go where this month
   const nbdParts = [], revoParts = [], zabaParts = [];
   let nbd = 0, revo = 0, zaba = 0;
+  const direct = !!m.direct;
+  const dewaDxb = m.dewaDxb != null ? m.dewaDxb : p.dxb.dewa;
+  const label = {...LABELS, ...(p.text || {})};
   for (const r of rows) {
     if (r.paid) continue;
-    if (r.from === 'NBD') { nbd += r.aed; nbdParts.push([r.name, r.aed]); }
+    if (r.id === 'mortdxb' && direct) {   // only the bills NBD pays; the partner's share leaves WIO on its own
+      for (const [n, v] of [['Internet', p.dxb.internet], ['Service fee', p.dxb.service], [label.utility + ' ' + label.home, dewaDxb]]) { nbd += v; nbdParts.push([n, v]); }
+    }
+    else if (r.from === 'NBD') { nbd += r.aed; nbdParts.push([r.name, r.aed]); }
     else if (r.from === 'REVO') { revo += r.aed; revoParts.push([r.eur ? r.name + ' (sent on in EUR)' : r.name, r.aed]); }
     else if (r.from === 'ZABA') { revo += r.aed; zaba += r.eurOut; zabaParts.push([r.name, r.eurOut]); revoParts.push([r.name + ' (→ ZABA)', r.aed]); }
     else if (r.from === 'SPLIT') { if (subsNbd) { nbd += subsNbd; nbdParts.push(['Subscriptions', subsNbd]); } if (subsRevo) { revo += subsRevo; revoParts.push(['Subscriptions', subsRevo]); } }
@@ -417,6 +424,17 @@ function compute(p, m, wioStart){
   const mortRow = row('mortdxb');
   const serviceExtra = mortRow && !mortRow.paid ? serviceDxb - p.dxb.service : 0;
   if (serviceExtra) { nbd += serviceExtra; nbdParts.push(['Service fee extra', serviceExtra]); }
+  // the partner's share of the home loan: what is left after the bills
+  const mort = row('mortdxb');
+  let toPartner = mort && !mort.paid ? mort.aed - p.dxb.internet - p.dxb.service - dewaDxb : 0;
+  let partnerPaid = 0, partnerLeft = 0, sentPartner = null;
+  if (direct && mort && !mort.paid) {
+    toPartner = Math.max(0, Math.round(toPartner));
+    sentPartner = (m.done || {}).toPartner && (m.sent || {}).partner != null ? +m.sent.partner : null;
+    partnerLeft = sentPartner != null ? sentPartner - toPartner : 0;
+    partnerPaid = Math.max(toPartner, sentPartner || 0);
+    wioOut += partnerPaid; wioParts.push([`${label.partner} (${mort.name})`, partnerPaid]);
+  }
   const costsDue = nbd + revo + wioOut;   // everything to pay this month, before spending money
   const costParts = {NBD:nbdParts.slice(), Revo:revoParts.slice(), WIO:wioParts};
   revo += p.spendRevo; revoParts.push(['Spending money for the month', p.spendRevo]);
@@ -424,9 +442,6 @@ function compute(p, m, wioStart){
   const nbdNeed = nbd - extraNbd, revoNeed = revo - extraRevo;
   const nbdSend = nbdNeed > 0 ? Math.ceil(nbdNeed) : 0;
   const hsbcSend = revoNeed > 0 ? Math.ceil(revoNeed + p.hsbcFee) : 0;
-  const dewaDxb = m.dewaDxb != null ? m.dewaDxb : p.dxb.dewa;
-  const mort = row('mortdxb');
-  const toPartner = mort && !mort.paid ? mort.aed - p.dxb.internet - p.dxb.service - dewaDxb : 0;
 
   const start = wioStart != null ? wioStart : p.wioSavings;
   let wioAfter = start + incomeMonth - nbdSend - hsbcSend - wioOut;
@@ -449,7 +464,7 @@ function compute(p, m, wioStart){
   const saveThis = wioSav - start + toIbkr;
   return {income, rows, row, fixedTotal, extras, extrasPlan, remaining, living, save, subsNbd, subsRevo, zgEur, jpYen,
     nbdParts, revoParts, zabaParts, nbdNeed, revoNeed, nbdSend, hsbcSend, hsbcTotal, zaba, toPartner, dewaDxb,
-    extraNbd, extraRevo, start, wioAfter, wioSav, toIbkr, saveThis, wioOut, paid, oneoffs, wioOneoffs, serviceDxb, serviceExtra, nbdLeft, hsbcLeft, leftOver, sentNbd:sent.nbd, sentHsbc:sent.hsbc, salaryUsd, incomeMonth, midAed, fxLoss, received:m.aedReceived != null, costsDue, costParts,
+    extraNbd, extraRevo, start, wioAfter, wioSav, toIbkr, saveThis, wioOut, paid, oneoffs, wioOneoffs, serviceDxb, serviceExtra, nbdLeft, hsbcLeft, leftOver, direct, partnerPaid, partnerLeft, sentPartner, dewaTyped:m.dewaDxb != null, sentNbd:sent.nbd, sentHsbc:sent.hsbc, salaryUsd, incomeMonth, midAed, fxLoss, received:m.aedReceived != null, costsDue, costParts,
     paidRows:rows.filter(r => r.paid), paidBefore:rows.filter(r => r.paid).reduce((t,r) => t + r.aed, 0)};
 }
 
@@ -467,7 +482,8 @@ function carryIn(key){
 function monthIn(key){
   if (memo.m.has(key)) return memo.m.get(key);
   const m = S.months[key] || {}, c = carryIn(key);
-  const out = {...m, extraNbd:m.extraNbd != null ? m.extraNbd : (c.nbd || undefined), extraRevo:m.extraRevo != null ? m.extraRevo : (c.revo || undefined), carried:c};
+  const out = {...m, extraNbd:m.extraNbd != null ? m.extraNbd : (c.nbd || undefined), extraRevo:m.extraRevo != null ? m.extraRevo : (c.revo || undefined), carried:c,
+    direct:!!S.plan.partnerDirectFrom && key >= S.plan.partnerDirectFrom};
   memo.m.set(key, out); return out;
 }
 function wioStart(key, depth = 0){
@@ -757,7 +773,7 @@ function viewMonth(p, R, key){
     if (r.sum === 'subs') return row(esc(r.name), r0(r.aed), {unit:'AED', cap:fromText(r)});
     const amt = r.cur === 'JPY' ? jpy(r.orig) : r.cur === 'EUR' ? eur(r.orig) : aed(r.aed) + (r.eurOut != null ? ` (≈ ${eur(r.eurOut)})` : '');
     if (r.auto) return row(esc(r.name), r0(r.aed), {unit:'AED', cap:fromText(r)});
-    return row(esc(r.name), null, {tag:'label', cap:`${amt} · ${fromText(r)}${r.paid ? ' · paid before salary' : ''}`, end:sw('m.paid.' + r.id, r.paid, 'Already paid: ' + r.name)});
+    return row(esc(r.name), null, {tag:'label', cap:`${amt} · ${r.id === 'mortdxb' && R.direct ? esc(`bills on NBD, the rest from WIO to ${t.partner}`) : fromText(r)}${r.paid ? ' · paid before salary' : ''}`, end:sw('m.paid.' + r.id, r.paid, 'Already paid: ' + r.name)});
   };
   const homeRows = row(esc(t.utility), num('m.dewaDxb', m.dewaDxb, {empty:true, ph:r0(p.dxb.dewa), label:t.utility + ' this month'}), {tag:'label', unit:'AED', cap:esc(`Paid from the ${r0(mortAmt)}; changes what ${t.partner} gets`)})
     + row('Service fee', num('m.serviceDxb', m.serviceDxb, {empty:true, ph:r0(p.dxb.service), label:'Service fee this month'}), {tag:'label', unit:'AED',
@@ -781,11 +797,12 @@ function viewMonth(p, R, key){
   const rent = R.row('rentjp');
   const eurRevo = R.rows.filter(r => r.from === 'REVO' && r.eur && !r.paid);
   const transfers = [
-    row('WIO → NBD', num('m.sent.nbd', (m.sent || {}).nbd, {empty:true, ph:r0(R.nbdSend), label:'Actually sent to NBD'}), {tag:'label', unit:'AED', cap:'Actually sent (grey = the plan) · ' + (R.nbdLeft >= 0.5 ? `${r0(R.nbdLeft)} left over in NBD · ` : R.nbdLeft <= -0.5 ? `${r0(-R.nbdLeft)} still to send · ` : '') + R.nbdParts.map(([n]) => n).join(', ') + (R.extraNbd ? `, less ${r0(R.extraNbd)} already there` : '')}),
-    row('WIO → HSBC → Revo', num('m.sent.hsbc', (m.sent || {}).hsbc, {empty:true, ph:r0(R.hsbcTotal), label:'Actually sent to Revo'}), {tag:'label', unit:'AED', cap:'Actually sent · ' + (R.hsbcLeft >= 0.5 ? `${r0(R.hsbcLeft)} left over in Revo · ` : R.hsbcLeft <= -0.5 ? `${r0(-R.hsbcLeft)} still to send · ` : '') + `About ${r0(p.hsbcFee)} fee on the way${R.extraRevo ? `, less ${r0(R.extraRevo)} already in Revo` : ''}`}),
+    row('WIO → NBD', num('m.sent.nbd', (m.done || {}).nbd ? (m.sent || {}).nbd : null, {empty:true, ph:r0(R.nbdSend), label:'Actually sent to NBD'}), {tag:'label', unit:'AED', cap:'Actually sent (grey = the plan) · ' + (R.nbdLeft >= 0.5 ? `${r0(R.nbdLeft)} left over in NBD · ` : R.nbdLeft <= -0.5 ? `${r0(-R.nbdLeft)} still to send · ` : '') + R.nbdParts.map(([n]) => n).join(', ') + (R.extraNbd ? `, less ${r0(R.extraNbd)} already there` : '')}),
+    row('WIO → HSBC → Revo', num('m.sent.hsbc', (m.done || {}).hsbc ? (m.sent || {}).hsbc : null, {empty:true, ph:r0(R.hsbcTotal), label:'Actually sent to Revo'}), {tag:'label', unit:'AED', cap:'Actually sent · ' + (R.hsbcLeft >= 0.5 ? `${r0(R.hsbcLeft)} left over in Revo · ` : R.hsbcLeft <= -0.5 ? `${r0(-R.hsbcLeft)} still to send · ` : '') + `About ${r0(p.hsbcFee)} fee on the way${R.extraRevo ? `, less ${r0(R.extraRevo)} already in Revo` : ''}`}),
     R.zaba > 0 ? row('Revo → ZABA', eur(R.zaba), {cap:R.zabaParts.map(([n]) => n).join(', ')}) : '',
     ...eurRevo.map(r => row(`Revo → ${esc(r.name)}`, eur(r.eurOut), {cap:'Sent in EUR'})),
     rent ? row(esc(`Revo → ${t.rentTo}`), rent.paid ? '<span class="acc">Paid</span>' : jpy(rent.orig), {cap:esc(rent.name)}) : '',
+    R.direct ? row(esc(`WIO → ${t.partner}’s NBD`), num('m.sent.partner', R.sentPartner, {empty:true, ph:r0(R.toPartner), label:'Actually sent to ' + t.partner}), {tag:'label', unit:'AED', cap:esc(`Actually sent · ${r0(mortAmt)} less internet, service fee ${r0(p.dxb.service)} and ${t.utility}`)}) :
     row(esc(`NBD → ${t.partner}`), aed(R.toPartner), {cap:esc(`${r0(mortAmt)} less internet, service fee ${r0(p.dxb.service)} and ${t.utility}`)}),
     R.toIbkr ? row('Revo → IBKR', aed(R.toIbkr), {cap:'Savings over the WIO goal'}) : '',
     row('Stays in WIO', aed(R.wioAfter), {cls:'total', cap:`${r0(p.spendWio)} to spend, ${r0(R.wioSav)} savings`})
@@ -846,6 +863,7 @@ function viewBudget(p, R){
       + row('Internet', num('p.dxb.internet', p.dxb.internet, {label:'Internet at home'}), {tag:'label', unit:'AED'})
       + row('Service fee', num('p.dxb.service', p.dxb.service, {label:'Service fee at home'}), {tag:'label', unit:'AED'})
       + row(esc(`${t.utility}, usual`), num('p.dxb.dewa', p.dxb.dewa, {label:'Usual utilities'}), {tag:'label', unit:'AED'})
+      + row(esc(`Send ${t.partner}’s share straight from WIO`), null, {tag:'label', cap:S.plan.partnerDirectFrom ? `From ${monthName(S.plan.partnerDirectFrom)}; earlier months stay as they were` : 'Off: it goes through your NBD', end:sw('p.partnerDirectFrom', !!S.plan.partnerDirectFrom, 'Send the share straight from WIO')})
       + row(esc(`To ${t.partner}`), r0((mort ? mort.aed : 0) - p.dxb.internet - p.dxb.service - p.dxb.dewa), {cls:'total', unit:'AED'}))}
   ${group('Subscriptions', subs, esc(t.subsNote))}
   ${ratesGroup(p)}`;
@@ -929,7 +947,7 @@ function chart(A, B, M){
 
 /* ---------- Settings: theme, and where your data lives ---------- */
 // Bump together with CACHE in sw.js on every release, so phones pick it up.
-const APP_VERSION = 9, APP_DATE = '21 Nov 2026';
+const APP_VERSION = 10, APP_DATE = '24 Nov 2026';
 const theme = () => { try { return localStorage.getItem('budget-theme') || 'auto'; } catch(e) { return 'auto'; } };
 function setTheme(v){
   try { if (v === 'auto') localStorage.removeItem('budget-theme'); else localStorage.setItem('budget-theme', v); } catch(e) {}
@@ -1008,7 +1026,17 @@ function stepsFor(p, R, m){
   if (R.nbdSend > 0 || R.sentNbd != null) { const tot = R.sentNbd != null ? R.sentNbd : R.nbdSend;
     st.push({id:'nbd', t:'WIO → NBD', d:sentNote(R.nbdLeft, 'NBD'), a:aed(tot), total:tot,
       parts:[...tail([...R.nbdParts, ...(R.extraNbd ? [['Already in NBD', -R.extraNbd]] : [])], R.nbdSend), ...diffLine(R.nbdLeft, 'NBD')]}); }
+  const mort = R.row('mortdxb');
   if (R.nbdLeft <= -0.5) st.push({id:'nbd-more', t:'WIO → NBD: send the rest', d:'A cost went up after the first transfer', a:aed(-R.nbdLeft)});
+  if (R.direct && mort && !mort.paid) {
+    const tot = R.sentPartner != null ? R.sentPartner : R.toPartner;
+    const note = R.partnerLeft >= 0.5 ? `You sent ${aed(R.partnerLeft)} more than the share is now` : R.partnerLeft <= -0.5 ? `The share went up after you sent it: ${aed(-R.partnerLeft)} still to send`
+      : R.dewaTyped ? lb.partnerNote : `Type this month’s ${lb.utility} in Month first; this uses the usual ${r0(R.dewaDxb)}`;
+    st.push({id:'toPartner', t:`WIO → ${lb.partner}’s NBD`, d:note, a:aed(tot), total:tot,
+      parts:[...tail([[mort.name, mort.aed], ['Internet', -p.dxb.internet], ['Service fee (usual)', -p.dxb.service], [`${lb.utility} ${lb.home}`, -R.dewaDxb]], R.toPartner),
+        ...(R.partnerLeft >= 0.5 ? [['Sent more than the share', R.partnerLeft]] : R.partnerLeft <= -0.5 ? [['Still to send', R.partnerLeft]] : [])]});
+    if (R.partnerLeft <= -0.5) st.push({id:'partner-more', t:`WIO → ${lb.partner}’s NBD: send the rest`, d:'The share went up after the first transfer', a:aed(-R.partnerLeft)});
+  }
   if (R.hsbcTotal > 0 || R.sentHsbc != null) { const tot = R.sentHsbc != null ? R.sentHsbc : R.hsbcTotal;
     st.push({id:'hsbc', t:'WIO → HSBC → REVO', d:sentNote(R.hsbcLeft, 'Revo') || `About ${aed(tot - fee)} lands in Revo`, a:aed(tot), total:tot,
       parts:[...tail([...R.revoParts, ...(R.extraRevo ? [['Already in Revo', -R.extraRevo]] : []), ...(R.toIbkr ? [['Savings for IBKR', R.toIbkr]] : []), ['HSBC fee, about', fee]], R.hsbcTotal), ...diffLine(R.hsbcLeft, 'Revo')]}); }
@@ -1019,12 +1047,11 @@ function stepsFor(p, R, m){
                               : {id:'rent', t:`REVO → ${lb.rentTo} (${rent.name})`, d:`About ${aed(rent.aed)}` + (lb.rentDue ? `. ${lb.rentDue}` : ''), a:jpy(rent.orig)});
   for (const r of R.rows) if (r.from === 'REVO' && r.eur && !r.paid) st.push({id:'eur-' + r.id, t:`REVO → ${r.name} in EUR`, d:`${aed(r.aed)} at today’s rate`, a:eur(r.eurOut)});
   if (R.zaba > 0) st.push({id:'zabapay', t:'ZABA: pay the euro bills', a:eur(R.zaba), total:R.zaba, cur:'EUR', parts:R.zabaParts.map(([n, v]) => [n, v])});
-  const mort = R.row('mortdxb');
   if (mort && !mort.paid) {
     const bills = p.dxb.internet + R.serviceDxb + R.dewaDxb;
     st.push({id:'dxb', t:`NBD: pay internet, service fee, ${lb.utility}`, a:aed(bills), total:bills,
       parts:[['Internet', p.dxb.internet], ['Service fee', R.serviceDxb], [lb.utility, R.dewaDxb]]});
-    st.push({id:'toPartner', t:`NBD → ${lb.partner}`, d:lb.partnerNote, a:aed(R.toPartner), total:R.toPartner,
+    if (!R.direct) st.push({id:'toPartner', t:`NBD → ${lb.partner}`, d:lb.partnerNote, a:aed(R.toPartner), total:R.toPartner,
       parts:[[mort.name, mort.aed], ['Internet', -p.dxb.internet], ['Service fee (usual)', -p.dxb.service], [lb.utility, -R.dewaDxb]]});
   }
   if (R.wioOneoffs > 0) st.push({id:'wiooff', t:'WIO: pay the unexpected costs', a:aed(R.wioOneoffs), total:R.wioOneoffs, parts:R.oneoffs.filter(o => o.bank === 'WIO').map(o => [o.name || 'Cost', +o.amt])});
@@ -1032,7 +1059,7 @@ function stepsFor(p, R, m){
   const togo = p.wioGoal - R.wioSav;
   st.push({id:'wio', t:'Leave in WIO', d:`${aed(p.spendWio)} of it is spending money for the month; ${aed(R.wioSav)} is savings` + (togo > 0 ? `, ${aed(togo)} short of ${r0(p.wioGoal)}` : `, goal of ${r0(p.wioGoal)} reached`),
     a:aed(R.wioAfter), total:R.wioAfter,
-    parts:tail([['Savings before salary', R.start], ['Salary', R.incomeMonth], ['To NBD', -R.nbdSend], ['To Revo via HSBC', -R.hsbcTotal], ...(R.wioOut ? [['Paid from WIO', -R.wioOut]] : [])], R.wioAfter)});
+    parts:tail([['Savings before salary', R.start], ['Salary', R.incomeMonth], ['To NBD', -(R.nbdSend + Math.max(0, R.nbdLeft))], ...(R.partnerPaid ? [[`To ${lb.partner}`, -R.partnerPaid]] : []), ['To Revo via HSBC', -(R.hsbcTotal + Math.max(0, R.hsbcLeft))], ...(R.wioOut - R.partnerPaid ? [['Paid from WIO', -(R.wioOut - R.partnerPaid)]] : [])], R.wioAfter)});
   return st;
 }
 // The lines under a step, with the sum at the bottom
@@ -1053,21 +1080,27 @@ function setKey(k, val){
   if (root === 'p') {
     if (parts[0] === 'etf' && parts[1] === 'years') val = Math.max(1, Math.min(40, Math.round(val || 1)));
     if (parts[0] === 'ratesAuto') val = !!val;
+    if (parts[0] === 'partnerDirectFrom') val = val ? S.key : '';
     if (parts[0] === 'ibkrHold') { S.plan.ibkrHold = {amt:+val || 0, cur:S.plan.etf.cur || 'AED'}; queueSave('plan'); cache(); return; }
     setPath(S.plan, parts, val); queueSave('plan');
   } else {
     if (!S.months[S.key]) S.months[S.key] = {};
     setPath(S.months[S.key], parts, val); queueSave('months/' + S.key);
-    if (parts[0] === 'done' && ['nbd', 'hsbc', 'nbd-more', 'hsbc-more'].includes(parts[1])) {
-      const m = S.months[S.key], id = parts[1].replace('-more', '');
+    const SENT_ID = {nbd:'nbd', 'nbd-more':'nbd', hsbc:'hsbc', 'hsbc-more':'hsbc', toPartner:'partner', 'partner-more':'partner'};
+    if (parts[0] === 'done' && SENT_ID[parts[1]]) {
+      const m = S.months[S.key], id = SENT_ID[parts[1]];
       resetMemo(); const R = compute(effPlan(), monthIn(S.key), wioStart(S.key));
-      m.sent = m.sent || {};
-      if (parts[1].endsWith('-more')) { if (val) m.sent[id] = id === 'nbd' ? R.nbdSend : R.hsbcTotal; delete m.done[parts[1]]; }
-      else if (val) { if (m.sent[id] == null) m.sent[id] = id === 'nbd' ? R.nbdSend : R.hsbcTotal; }
-      // unticking keeps the amount, so ticking again restores what you really sent
+      const planned = {nbd:R.nbdSend, hsbc:R.hsbcTotal, partner:R.toPartner}[id];
+      m.sent = m.sent || {}; m.sentMode = m.sentMode || {};
+      if (id !== 'partner' || R.direct) {
+        if (parts[1].endsWith('-more')) { if (val) m.sent[id] = planned; delete m.done[parts[1]]; }
+        // unticking keeps the amount, so ticking again restores what you really sent - unless it was recorded another way
+        else if (val && (m.sent[id] == null || (id === 'nbd' && !!m.sentMode.nbd !== R.direct))) m.sent[id] = planned;
+        if (id === 'nbd' && val) m.sentMode.nbd = R.direct;
+      }
       queueSave('months/' + S.key);
     }
-    if (parts[0] === 'sent' && val != null) { const m = S.months[S.key]; m.done = m.done || {}; m.done[parts[1]] = true; queueSave('months/' + S.key); }
+    if (parts[0] === 'sent' && val != null) { const m = S.months[S.key]; m.done = m.done || {}; m.done[parts[1] === 'partner' ? 'toPartner' : parts[1]] = true; m.sentMode = m.sentMode || {}; if (parts[1] === 'nbd') m.sentMode.nbd = !!monthIn(S.key).direct; queueSave('months/' + S.key); }
     if (parts[0] === 'aedReceived' && val != null) {
       const ep = effPlan(), m = S.months[S.key], mid = (m.salaryUsd != null ? m.salaryUsd : ep.salaryUsd) / ep.usdPerAed;
       const pct = (mid - val) / mid * 100;
