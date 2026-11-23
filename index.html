@@ -64,6 +64,9 @@ h1,h2,h3,p{margin:0}
 .sync::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--faint);flex:none}
 .sync[data-s="synced"]::before{background:var(--accent)}
 .sync[data-s="error"]::before,.sync[data-s="auth"]::before,.sync[data-s="norepo"]::before,.sync[data-s="conflict"]::before{background:var(--warn)}
+.sync .vn{color:var(--faint);font-variant-numeric:tabular-nums}
+.top .sync{white-space:normal;text-align:right;min-width:0}
+.top .month{flex:none}
 button.sync{appearance:none;border:0;background:none;padding:6px 2px;cursor:pointer;font:inherit;font-size:13px}
 button.sync:focus-visible{outline:2px solid var(--accent);border-radius:6px}
 .banner{display:flex;flex-direction:column;gap:4px;text-align:left;border:0;border-radius:14px;padding:14px 16px;background:var(--accent-soft);color:var(--ink);font:inherit;width:100%}
@@ -297,6 +300,7 @@ const DEFAULT_PLAN = {
   wioSavings: 0, wioGoal: 30000, ibkrNow: 0,
   etf: {ret:7, years:10, bonus:0, cur:'EUR'},
   ratesAuto: true,
+  saveRound: 100, saveRoundFrom: '2026-11',   // savings are rounded down to this; the rest is spending money in WIO
   partnerDirectFrom: '2026-11',   // from this month the partner's share goes straight from WIO; '' = through NBD
   ideas: {}
 };
@@ -384,7 +388,7 @@ function compute(p, m, wioStart){
   const extrasPlan = extras.reduce((t,e) => t + e.plan, 0);
   const remaining = income - fixedTotal - extrasPlan - p.hsbcFee;
   const living = p.spendRevo + p.spendWio;
-  const save = remaining - living;
+  const saveRaw = remaining - living, save = roundDown(saveRaw, m.round), savePetty = saveRaw - save;
 
   // what has to go where this month
   const nbdParts = [], revoParts = [], zabaParts = [];
@@ -449,9 +453,9 @@ function compute(p, m, wioStart){
   // savings over the WIO goal ride along to Revo for IBKR
   let toIbkr = 0, hsbcTotal = hsbcSend;
   if (wioSav > p.wioGoal) {
-    toIbkr = Math.floor(wioSav - p.wioGoal);
+    toIbkr = roundDown(Math.floor(wioSav - p.wioGoal), m.round);
     hsbcTotal = hsbcSend > 0 ? hsbcSend + toIbkr : Math.ceil(toIbkr + p.hsbcFee);
-    if (hsbcSend === 0) toIbkr = Math.max(0, hsbcTotal - p.hsbcFee);
+    if (hsbcSend === 0 && toIbkr === 0) hsbcTotal = 0;
     wioAfter -= (hsbcTotal - hsbcSend); wioSav = wioAfter - p.spendWio;
   }
   // Amounts already sent (kept when you tick the step). A cost that changes afterwards leaves money over, or short.
@@ -461,10 +465,12 @@ function compute(p, m, wioStart){
   const hsbcLeft = sent.hsbc != null ? +sent.hsbc - hsbcTotal : 0;
   const leftOver = Math.max(0, nbdLeft) + Math.max(0, hsbcLeft);   // left WIO, sits in NBD / Revo
   wioAfter -= leftOver; wioSav = wioAfter - p.spendWio;
+  const petty = wioSav - roundDown(wioSav, m.round);     // rounded off the savings: extra spending money in WIO
+  wioSav -= petty;
   const saveThis = wioSav - start + toIbkr;
   return {income, rows, row, fixedTotal, extras, extrasPlan, remaining, living, save, subsNbd, subsRevo, zgEur, jpYen,
     nbdParts, revoParts, zabaParts, nbdNeed, revoNeed, nbdSend, hsbcSend, hsbcTotal, zaba, toPartner, dewaDxb,
-    extraNbd, extraRevo, start, wioAfter, wioSav, toIbkr, saveThis, wioOut, paid, oneoffs, wioOneoffs, serviceDxb, serviceExtra, nbdLeft, hsbcLeft, leftOver, direct, partnerPaid, partnerLeft, sentPartner, dewaTyped:m.dewaDxb != null, sentNbd:sent.nbd, sentHsbc:sent.hsbc, salaryUsd, incomeMonth, midAed, fxLoss, received:m.aedReceived != null, costsDue, costParts,
+    extraNbd, extraRevo, start, wioAfter, wioSav, toIbkr, saveThis, wioOut, paid, oneoffs, wioOneoffs, serviceDxb, serviceExtra, nbdLeft, hsbcLeft, leftOver, petty, saveRaw, savePetty, round:m.round, direct, partnerPaid, partnerLeft, sentPartner, dewaTyped:m.dewaDxb != null, sentNbd:sent.nbd, sentHsbc:sent.hsbc, salaryUsd, incomeMonth, midAed, fxLoss, received:m.aedReceived != null, costsDue, costParts,
     paidRows:rows.filter(r => r.paid), paidBefore:rows.filter(r => r.paid).reduce((t,r) => t + r.aed, 0)};
 }
 
@@ -483,7 +489,8 @@ function monthIn(key){
   if (memo.m.has(key)) return memo.m.get(key);
   const m = S.months[key] || {}, c = carryIn(key);
   const out = {...m, extraNbd:m.extraNbd != null ? m.extraNbd : (c.nbd || undefined), extraRevo:m.extraRevo != null ? m.extraRevo : (c.revo || undefined), carried:c,
-    direct:(from => !!from && key >= from)(m.frozen ? m.frozen.partnerDirectFrom : S.plan.partnerDirectFrom)};
+    direct:(from => !!from && key >= from)(m.frozen ? m.frozen.partnerDirectFrom : S.plan.partnerDirectFrom),
+    round:(q => q.saveRoundFrom && key >= q.saveRoundFrom ? +q.saveRound || 0 : 0)(planFor(key))};
   memo.m.set(key, out); return out;
 }
 function wioStart(key, depth = 0){
@@ -512,6 +519,8 @@ function ideasList(p){
     return {...x, target, on:!!st.on, saves:Math.max(0, x.now - target)}; });
 }
 
+const roundDown = (v, q) => q > 0 && v > 0 ? Math.floor((v + 1e-6) / q) * q : v;
+const usual = p => ({round:+p.saveRound || 0});   // a normal month, with the rounding
 const mRate = p => Math.pow(1 + p.etf.ret/100, 1/12) - 1;
 
 /* ---------- exchange rates: fetched once a day on each device, your typed ones as the fallback ---------- */
@@ -529,7 +538,7 @@ function effPlan(){
 }
 /* ---------- past months keep the amounts and rates they had ---------- */
 const RATES = ['usdPerAed', 'eurPerAed', 'aedPerJpy'];
-const FROZEN = ['salaryUsd', ...RATES, 'fixed', 'zg', 'jp', 'dxb', 'subs', 'extras', 'hsbcFee', 'spendRevo', 'spendWio', 'wioGoal', 'wioFxPct', 'partnerDirectFrom', 'places'];
+const FROZEN = ['salaryUsd', ...RATES, 'fixed', 'zg', 'jp', 'dxb', 'subs', 'extras', 'hsbcFee', 'spendRevo', 'spendWio', 'wioGoal', 'wioFxPct', 'saveRound', 'saveRoundFrom', 'partnerDirectFrom', 'places'];
 const pick = (o, ks) => clone(Object.fromEntries(ks.filter(k => o[k] !== undefined).map(k => [k, o[k]])));
 const currentKey = () => { const t = new Date(), d = t.getDate() >= 15 ? t : new Date(t.getFullYear(), t.getMonth() - 1, 1); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); };
 // The plan a month is worked out from: frozen when it is over; the rates of its transfer day once transfers have begun
@@ -571,13 +580,13 @@ function etfMoney(p){
 const fv = (m, n, i) => i ? m * (Math.pow(1+i, n) - 1) / i : m * n;
 
 function project(p, key, R, extra, months){
-  const i = mRate(p), N = compute(p, {}, 0);
+  const i = mRate(p), N = compute(p, {}, 0);   // rounded below, together with ideas and bonus
   let wio = R.wioSav, ibkr = (+p.ibkrNow || 0) + R.toIbkr, put = ibkr;
   const rows = [{key, saved:R.saveThis, wio, to:R.toIbkr, ibkr, put}];
   for (let k = 1; k <= months; k++) {
     const mk = addMonths(key, k);
     const bonus = mk.endsWith('-07') ? (+p.etf.bonus || 0) / p.usdPerAed : 0;   // typed in USD
-    const s = N.save + extra + bonus;
+    const s = roundDown(N.save + extra + bonus, +p.saveRound || 0);
     ibkr *= (1 + i);
     let to = 0;
     if (s < 0) wio += s;
@@ -628,7 +637,7 @@ function viewToday(p, R, key){
   const autos = [];
   for (const r of R.rows) if (r.auto && !r.paid) autos.push(r.sum === 'subs' ? `Subscriptions: ${r0(R.subsRevo)} Revo + ${r0(R.subsNbd)} NBD` : `${r.name} ${r0(r.aed)} (${r.from === 'NBD' ? 'NBD' : 'Revo'})`);
   const tk = R.row('tickets'); if (tk && !tk.paid) autos.push(`${tk.name} ${r0(tk.aed)} stays in Revo`);
-  autos.push(`Spending money: ${r0(p.spendRevo)} Revo + ${r0(p.spendWio)} WIO`);
+  autos.push(`Spending money: ${r0(p.spendRevo)} Revo + ${r0(p.spendWio + R.petty)} WIO`);
   const cc = R.extras.find(e => e.id === 'cc'); if (cc && cc.now) autos.push(`Credit card ${r0(cc.now)} from NBD`);
   const diff = R.salaryUsd - p.salaryUsd;
 
@@ -674,8 +683,8 @@ function viewToday(p, R, key){
 // Salary in, costs out, living money set aside: what is left is this month's saving.
 function monthCard(p, R){
   const living = p.spendRevo + p.spendWio, already = R.extraNbd + R.extraRevo;
-  const feeEtc = R.incomeMonth - R.costsDue - living + already - R.leftOver - R.saveThis;
-  const N = compute(p, {}, 0);
+  const feeEtc = R.incomeMonth - R.costsDue - living - R.petty + already - R.leftOver - R.saveThis;
+  const N = compute(p, {round:R.round}, 0);
   const line = (label, v, cap, cls) => `<div class="sl ${cls || ''}"><span>${label}${cap ? `<i>${cap}</i>` : ''}</span><b>${v}</b></div>`;
   const costList = Object.entries(R.costParts).filter(([, l]) => l.length).map(([bank, l]) =>
     `<div class="cg">From ${bank}</div>` + l.map(([n, v]) => `<div class="ci"><span>${esc(n)}</span><span>${r0(v)}</span></div>`).join('')).join('');
@@ -684,7 +693,8 @@ function monthCard(p, R){
   if (already) why.push(`+${r0(already)} already in Revo and NBD`);
   const salaryDiff = R.incomeMonth - R.income; if (Math.abs(salaryDiff) >= 1) why.push(`${salaryDiff > 0 ? '+' : '−'}${r0(Math.abs(salaryDiff))} salary`);
   if (R.leftOver >= 1) why.push(`−${r0(R.leftOver)} left over in NBD/Revo for next month`);
-  const other = R.saveThis - R.save - R.paidBefore - already - salaryDiff + R.leftOver;
+  const kept = R.petty - R.savePetty; if (Math.abs(kept) >= 1) why.push(`${kept > 0 ? '−' : '+'}${r0(Math.abs(kept))} rounding`);
+  const other = R.saveThis - R.save - R.paidBefore - already - salaryDiff + R.leftOver + kept;
   if (Math.abs(other) >= 1) why.push(`${other > 0 ? '+' : '−'}${r0(Math.abs(other))} bills ${other > 0 ? 'lower' : 'higher'} than usual`);
   return `
   <div class="card">
@@ -692,7 +702,7 @@ function monthCard(p, R){
     <div class="sum">
       ${line('Salary', '+' + r0(R.incomeMonth), R.fxLoss >= 0.5 ? `${usd(R.salaryUsd)} · ${r0(R.fxLoss)} ${R.received ? 'lost' : 'expected'} to the exchange` : '')}
       <details class="sd2"><summary>${line('Costs due this month', '−' + r0(R.costsDue), 'Tap to see them all' + (R.paidRows.length ? ` · ${R.paidRows.map(r => esc(r.name)).join(', ')} already paid` : ''))}</summary><div class="clist">${costList}</div></details>
-      ${line('Living money for the month', '−' + r0(living), `${r0(p.spendRevo)} in Revo · ${r0(p.spendWio)} in WIO`)}
+      ${line('Living money for the month', '−' + r0(living + R.petty), `${r0(p.spendRevo)} in Revo · ${r0(p.spendWio + R.petty)} in WIO${R.petty >= 0.5 ? `, ${r0(R.petty)} of it rounded off savings` : ''}`)}
       ${Math.abs(feeEtc) >= 0.5 ? line('HSBC fee and rounding', (feeEtc > 0 ? '−' : '+') + r0(Math.abs(feeEtc))) : ''}
       ${already ? line('Already in Revo and NBD', '+' + r0(already)) : ''}
       ${R.leftOver >= 0.5 ? line('Left over in NBD and Revo', '−' + r0(R.leftOver), 'Sent but not needed; counts as already there next month') : ''}
@@ -709,13 +719,15 @@ function reviewPrev(p, key){
   if (!S.months[prevKey]) return null;
   const m = S.months[key] || {};
   const q = planFor(prevKey), P = compute(q, monthIn(prevKey), wioStart(prevKey));
-  const r = {prevKey, plannedSave:P.saveThis, spendWio:q.spendWio, spendRevo:q.spendRevo};
+  const r = {prevKey, plannedSave:P.saveThis, spendWio:q.spendWio + P.petty, spendRevo:q.spendRevo};
   if (m.wioNow == null) return {...r, waiting:true};
   const c = carryIn(key);
   r.ibkr = +m.ibkrSent || 0;
-  r.wioExtra = m.wioNow + r.ibkr - P.wioSav;          // above the plan's savings = WIO living money not spent
-  r.wioSpent = q.spendWio - r.wioExtra;
-  if (m.extraRevo != null) { r.revoLeft = m.extraRevo - c.revo; r.revoSpent = q.spendRevo - r.revoLeft; }
+  // what you sent to IBKR includes the payday transfer, which the plan already took out of WIO
+  const more = r.ibkr ? Math.max(0, r.ibkr - P.toIbkr) : 0, less = r.ibkr ? Math.max(0, P.toIbkr - r.ibkr) : 0;
+  r.wioExtra = m.wioNow + more - P.wioSav;          // above the plan's savings = WIO living money not spent
+  r.wioSpent = r.spendWio - r.wioExtra;
+  if (m.extraRevo != null) { r.revoLeft = m.extraRevo - c.revo - less; r.revoSpent = q.spendRevo - r.revoLeft; }
   if (m.extraNbd != null) r.nbdLeft = m.extraNbd - c.nbd;   // bills money not used
   r.saved = P.saveThis + r.wioExtra + (r.revoLeft || 0) + (r.nbdLeft || 0);
   return r;
@@ -783,7 +795,7 @@ function viewMonth(p, R, key){
     row('Left in WIO right now', num('m.wioNow', m.wioNow, {empty:true, ph:r0(R.start), label:'Left in WIO right now'}), {tag:'label', unit:'AED', cap:'Everything in WIO before this salary'}),
     row('Left in Revo right now', num('m.extraRevo', m.extraRevo, {empty:true, ph:r0(carry.revo), label:'Left in Revo right now'}), {tag:'label', unit:'AED', cap:carry.revo && m.extraRevo == null ? `${r0(carry.revo)} left over from ${monthName(carry.from)}'s transfer` : 'Used first for this month, so less is sent'}),
     row('Left in NBD right now', num('m.extraNbd', m.extraNbd, {empty:true, ph:r0(carry.nbd), label:'Left in NBD right now'}), {tag:'label', unit:'AED', cap:carry.nbd && m.extraNbd == null ? `${r0(carry.nbd)} left over from ${monthName(carry.from)}'s transfer` : 'Used first for this month, so less is sent'}),
-    row('Sent to IBKR since last salary', num('m.ibkrSent', m.ibkrSent, {empty:true, ph:'0', label:'Sent to IBKR since last salary'}), {tag:'label', unit:'AED', cap:'Counted as saved, not spent'})
+    row('Sent to IBKR since last salary', num('m.ibkrSent', m.ibkrSent, {empty:true, ph:'0', label:'Sent to IBKR since last salary'}), {tag:'label', unit:'AED', cap:'Everything, the payday transfer included. Counted as saved'})
   ].join('');
   // one row per bill: this month's amount where it changes, a switch where it may already be paid
   const billRow = r => {
@@ -824,7 +836,7 @@ function viewMonth(p, R, key){
     R.direct ? row(esc(`WIO → ${t.partner}’s NBD`), num('m.sent.partner', R.sentPartner, {empty:true, ph:r0(R.toPartner), label:'Actually sent to ' + t.partner}), {tag:'label', unit:'AED', cap:esc(`Actually sent · ${r0(mortAmt)} less internet, service fee ${r0(p.dxb.service)} and ${t.utility}`)}) :
     row(esc(`NBD → ${t.partner}`), aed(R.toPartner), {cap:esc(`${r0(mortAmt)} less internet, service fee ${r0(p.dxb.service)} and ${t.utility}`)}),
     R.toIbkr ? row('Revo → IBKR', aed(R.toIbkr), {cap:'Savings over the WIO goal'}) : '',
-    row('Stays in WIO', aed(R.wioAfter), {cls:'total', cap:`${r0(p.spendWio)} to spend, ${r0(R.wioSav)} savings`})
+    row('Stays in WIO', aed(R.wioAfter), {cls:'total', cap:`${r0(p.spendWio + R.petty)} to spend, ${r0(R.wioSav)} savings`})
   ].join('');
   return `
   ${group('Before salary', before, 'Type these just before salary day: they set this month’s transfers and show how last month went on Today.')}
@@ -863,19 +875,19 @@ function viewBudget(p, R){
     <div class="hero-l">A normal month</div>
     <div class="kpi">${aed(R.income)}</div>
     <div class="split" aria-hidden="true">
-      <i style="width:${pct(R.fixedTotal)}%;background:var(--ink);opacity:.82"></i><i style="width:${pct(extraT)}%;background:var(--ink);opacity:.5"></i><i style="width:${pct(R.living)}%;background:var(--ink);opacity:.24"></i><i style="width:${pct(R.save)}%;background:var(--accent)"></i>
+      <i style="width:${pct(R.fixedTotal)}%;background:var(--ink);opacity:.82"></i><i style="width:${pct(extraT)}%;background:var(--ink);opacity:.5"></i><i style="width:${pct(R.living + R.savePetty)}%;background:var(--ink);opacity:.24"></i><i style="width:${pct(R.save)}%;background:var(--accent)"></i>
     </div>
     <div class="legend">
       <div><span class="dot" style="background:var(--ink);opacity:.82"></span>Fixed<b>${r0(R.fixedTotal)}</b></div>
       <div><span class="dot" style="background:var(--ink);opacity:.5"></span>Extra<b>${r0(extraT)}</b></div>
-      <div><span class="dot" style="background:var(--ink);opacity:.24"></span>Living<b>${r0(R.living)}</b></div>
+      <div><span class="dot" style="background:var(--ink);opacity:.24"></span>Living<b>${r0(R.living + R.savePetty)}</b></div>
       <div><span class="dot" style="background:var(--accent)"></span>Saved<b class="acc">${r0(R.save)}</b></div>
     </div>
   </div>
   ${group('Income', row('Usual salary', num('p.salaryUsd', p.salaryUsd, {label:'Usual salary in USD'}), {tag:'label', unit:'USD', sub:`= ${aed(R.income)} after exchange`}) + row('WIO exchange cost', num('p.wioFxPct', p.wioFxPct, {dec:true, label:'WIO exchange cost, percent'}), {tag:'label', unit:'%', cap:'Learned each time you type what arrived'}), 'Change this only if your base pay changes. Each month’s real salary goes on Today.')}
   ${group('Fixed costs', fixed)}
   ${group('Extra costs', extras, 'Tap the bank to change where a cost is paid from.')}
-  ${group('Spending money', row('Keep in WIO', num('p.spendWio', p.spendWio, {label:'Spending money kept in WIO'}), {tag:'label', unit:'AED'}) + row('Send to Revo', num('p.spendRevo', p.spendRevo, {label:'Spending money sent to Revo'}), {tag:'label', unit:'AED'}))}
+  ${group('Spending money', row('Keep in WIO', num('p.spendWio', p.spendWio, {label:'Spending money kept in WIO'}), {tag:'label', unit:'AED'}) + row('Send to Revo', num('p.spendRevo', p.spendRevo, {label:'Spending money sent to Revo'}), {tag:'label', unit:'AED'}) + row('Round savings down to', num('p.saveRound', p.saveRound, {label:'Round savings down to'}), {tag:'label', unit:'AED', cap:'The rest stays in WIO as spending money. 0 = no rounding'}))}
   ${group(esc(t.billsA), p.zg.map((z,i) => row(esc(z.name), num(`p.zg.${i}.amt`, z.amt, {d2:true, label:z.name + ', euro'}), {tag:'label', unit:'€', cap:z.note && z.note !== 'N/A' && z.note !== 'No Idea' ? esc(z.note) : ''})).join('') + row('Total', nf2.format(R.zgEur), {cls:'total', unit:'€', sub:`≈ ${aed(R.zgEur / p.eurPerAed)}`}))}
   ${group(esc(t.billsB), p.jp.map((z,i) => row(esc(z.name[0].toUpperCase() + z.name.slice(1)), num(`p.jp.${i}.amt`, z.amt, {label:z.name + ', yen'}), {tag:'label', unit:'¥'})).join('') + row('Total', nf0.format(R.jpYen), {cls:'total', unit:'¥', sub:`≈ ${aed(R.jpYen * p.aedPerJpy)}`}))}
   ${group(esc(`${t.home[0].toUpperCase() + t.home.slice(1)}, from the loan money on NBD`), row(esc(mort ? mort.name : 'Loan'), r0(mort ? mort.aed : 0), {unit:'AED'})
@@ -966,7 +978,7 @@ function chart(A, B, M){
 
 /* ---------- Settings: theme, and where your data lives ---------- */
 // Bump together with CACHE in sw.js on every release, so phones pick it up.
-const APP_VERSION = 11, APP_DATE = '24 Nov 2026';
+const APP_VERSION = 12, APP_DATE = '24 Nov 2026';
 const theme = () => { try { return localStorage.getItem('budget-theme') || 'auto'; } catch(e) { return 'auto'; } };
 function setTheme(v){
   try { if (v === 'auto') localStorage.removeItem('budget-theme'); else localStorage.setItem('budget-theme', v); } catch(e) {}
@@ -1027,7 +1039,7 @@ function render(){
   document.getElementById('tabbar').innerHTML = navHtml();
   document.getElementById('side-nav').innerHTML = navHtml();
   const V = S.view === 'sync' ? ['sync', 'Settings', 'Settings'] : (VIEWS.find(v => v[0] === S.view) || VIEWS[0]);
-  const body = {today:viewToday, month:viewMonth, budget:viewBudget, grow:viewGrow, sync:viewSync}[V[0]](p, V[0] === 'budget' ? compute(p, {}, 0) : R, key);
+  const body = {today:viewToday, month:viewMonth, budget:viewBudget, grow:viewGrow, sync:viewSync}[V[0]](p, V[0] === 'budget' ? compute(p, usual(p), 0) : R, key);
   document.getElementById('view').innerHTML = `<h1 class="large">${V[2]}</h1>` + banner() + body;
   showSync();
   restoreFocus(keep);
@@ -1076,7 +1088,7 @@ function stepsFor(p, R, m){
   if (R.wioOneoffs > 0) st.push({id:'wiooff', t:'WIO: pay the unexpected costs', a:aed(R.wioOneoffs), total:R.wioOneoffs, parts:R.oneoffs.filter(o => o.bank === 'WIO').map(o => [o.name || 'Cost', +o.amt])});
   if (R.toIbkr > 0) st.push({id:'ibkr', t:'REVO → IBKR for the ETF', d:`Savings over the ${aed(p.wioGoal)} WIO goal`, a:aed(R.toIbkr)});
   const togo = p.wioGoal - R.wioSav;
-  st.push({id:'wio', t:'Leave in WIO', d:`${aed(p.spendWio)} of it is spending money for the month; ${aed(R.wioSav)} is savings` + (togo > 0 ? `, ${aed(togo)} short of ${r0(p.wioGoal)}` : `, goal of ${r0(p.wioGoal)} reached`),
+  st.push({id:'wio', t:'Leave in WIO', d:`${aed(p.spendWio + R.petty)} of it is spending money for the month${R.petty >= 0.5 ? ` (${r0(R.petty)} rounded off savings)` : ''}; ${aed(R.wioSav)} is savings` + (togo > 0 ? `, ${aed(togo)} short of ${r0(p.wioGoal)}` : `, goal of ${r0(p.wioGoal)} reached`),
     a:aed(R.wioAfter), total:R.wioAfter,
     parts:tail([['Savings before salary', R.start], ['Salary', R.incomeMonth], ['To NBD', -(R.nbdSend + Math.max(0, R.nbdLeft))], ...(R.partnerPaid ? [[`To ${lb.partner}`, -R.partnerPaid]] : []), ['To Revo via HSBC', -(R.hsbcTotal + Math.max(0, R.hsbcLeft))], ...(R.wioOut - R.partnerPaid ? [['Paid from WIO', -(R.wioOut - R.partnerPaid)]] : [])], R.wioAfter)});
   return st;
@@ -1193,7 +1205,7 @@ const saveSyncState = () => { try { localStorage.setItem('budget-sync-state', JS
 let editRev = 0;
 
 const SYNC = {local:'Not connected', checking:'Checking…', saving:'Saving…', synced:'Synced', offline:'Offline · saved here', auth:'Key not accepted', norepo:'Repo not reachable', error:'Sync failed · saved here', conflict:'Needs a choice'};
-const showSync = () => document.querySelectorAll('.sync').forEach(e => { e.textContent = SYNC[S.sync]; e.dataset.s = S.sync; });
+const showSync = () => document.querySelectorAll('.sync').forEach(e => { e.innerHTML = `<span>${SYNC[S.sync]}</span><span class="vn">v${APP_VERSION}</span>`; e.dataset.s = S.sync; });
 const setSync = (s, redraw) => { S.sync = s; if (redraw) render(); else showSync(); };
 const connected = () => !!(cfg.token && cfg.owner && cfg.repo);
 const device = () => /iPhone|iPad/.test(navigator.userAgent) ? 'iPhone' : /Macintosh/.test(navigator.userAgent) ? 'Mac' : 'browser';
