@@ -460,7 +460,17 @@ function compute(p, m, wioStart){
   }
   // Amounts already sent (kept when you tick the step). A cost that changes afterwards leaves money over, or short.
   const ticked = m.done || {}, sentAll = m.sent || {};
-  const sent = {nbd:ticked.nbd ? sentAll.nbd : null, hsbc:ticked.hsbc ? sentAll.hsbc : null};
+  const sent = {nbd:ticked.nbd ? sentAll.nbd : null, hsbc:ticked.hsbc ? sentAll.hsbc : null, ibkr:ticked.ibkr ? sentAll.ibkr : null};
+  // Once the savings are in Revo (or already at IBKR) they no longer follow the WIO side:
+  // a later cost in WIO or NBD comes out of the WIO savings, a later cost in Revo out of what is still in Revo.
+  if (sent.ibkr != null || sent.hsbc != null) {
+    const base = hsbcSend > 0 ? hsbcSend : Math.ceil(p.hsbcFee);       // what Revo needs before any savings
+    const planned = m.ibkrPlan != null ? +m.ibkrPlan : toIbkr;
+    const fixed = sent.ibkr != null ? Math.max(0, +sent.ibkr) : planned > 0 ? Math.max(0, roundDown(Math.floor(+sent.hsbc - base), m.round)) : 0;
+    const total = fixed > 0 ? base + fixed : hsbcSend;
+    wioAfter -= total - hsbcTotal; wioSav = wioAfter - p.spendWio;
+    toIbkr = fixed; hsbcTotal = total;
+  }
   const nbdLeft = sent.nbd != null ? +sent.nbd - nbdSend : 0;
   const hsbcLeft = sent.hsbc != null ? +sent.hsbc - hsbcTotal : 0;
   const leftOver = Math.max(0, nbdLeft) + Math.max(0, hsbcLeft);   // left WIO, sits in NBD / Revo
@@ -629,7 +639,7 @@ const ICONS = {
 const VIEWS = [['today','Today','Salary day'],['month','Month','This month'],['budget','Budget','Budget'],['grow','Grow','Grow']];
 
 /* ---------- Today: salary in, then the steps ---------- */
-const SENT_BOX = {nbd:'nbd', hsbc:'hsbc', toPartner:'partner'};
+const SENT_BOX = {nbd:'nbd', hsbc:'hsbc', toPartner:'partner', ibkr:'ibkr'};
 function viewToday(p, R, key){
   const m = S.months[key] || {}, done = m.done || {};
   const steps = stepsFor(p, R, m);
@@ -965,7 +975,7 @@ function chart(A, B, M){
 
 /* ---------- Settings: theme, and where your data lives ---------- */
 // Bump together with CACHE in sw.js on every release, so phones pick it up.
-const APP_VERSION = 13, APP_DATE = '24 Nov 2026';
+const APP_VERSION = 14, APP_DATE = '24 Nov 2026';
 const theme = () => { try { return localStorage.getItem('budget-theme') || 'auto'; } catch(e) { return 'auto'; } };
 function setTheme(v){
   try { if (v === 'auto') localStorage.removeItem('budget-theme'); else localStorage.setItem('budget-theme', v); } catch(e) {}
@@ -1072,7 +1082,7 @@ function stepsFor(p, R, m){
       parts:[[mort.name, mort.aed], ['Internet', -p.dxb.internet], ['Service fee (usual)', -p.dxb.service], [lb.utility, -R.dewaDxb]]});
   }
   if (R.wioOneoffs > 0) st.push({id:'wiooff', t:'WIO: pay the unexpected costs', a:aed(R.wioOneoffs), total:R.wioOneoffs, parts:R.oneoffs.filter(o => o.bank === 'WIO').map(o => [o.name || 'Cost', +o.amt])});
-  if (R.toIbkr > 0) st.push({id:'ibkr', t:'REVO → IBKR for the ETF', d:`Savings over the ${aed(p.wioGoal)} WIO goal`, a:aed(R.toIbkr)});
+  if (R.toIbkr > 0) st.push({id:'ibkr', t:'REVO → IBKR for the ETF', d:R.sentHsbc != null ? 'Already in Revo from this month’s transfer' : `Savings over the ${aed(p.wioGoal)} WIO goal`, a:aed(R.toIbkr), total:R.toIbkr});
   const togo = p.wioGoal - R.wioSav;
   st.push({id:'wio', t:'Leave in WIO', d:`${aed(p.spendWio + R.petty)} of it is spending money for the month${R.petty >= 0.5 ? ` (${r0(R.petty)} rounded off savings)` : ''}; ${aed(R.wioSav)} is savings` + (togo > 0 ? `, ${aed(togo)} short of ${r0(p.wioGoal)}` : `, goal of ${r0(p.wioGoal)} reached`),
     a:aed(R.wioAfter), total:R.wioAfter,
@@ -1103,16 +1113,19 @@ function setKey(k, val){
     setPath(S.plan, parts, val); queueSave('plan');
   } else {
     if (!S.months[S.key]) S.months[S.key] = {};
+    const was = S.months[S.key];   // sent before the app kept this: note what went along for IBKR, before this change
+    if (was.ibkrPlan == null && !was.frozen && (was.done || {}).hsbc && (was.sent || {}).hsbc != null) { resetMemo(); was.ibkrPlan = compute(planFor(S.key), monthIn(S.key), wioStart(S.key)).toIbkr; }
     setPath(S.months[S.key], parts, val); queueSave('months/' + S.key);
     if ((parts[0] === 'done' && ['usd', 'hsbc'].includes(parts[1])) || parts[0] === 'aedReceived') {
       const m = S.months[S.key], begun = (m.done || {}).usd || (m.done || {}).hsbc || m.aedReceived != null;
       if (begun && !m.rates && !m.frozen) m.rates = pick(effPlan(), RATES); else if (!begun) delete m.rates;
     }
-    const SENT_ID = {nbd:'nbd', 'nbd-more':'nbd', hsbc:'hsbc', 'hsbc-more':'hsbc', toPartner:'partner', 'partner-more':'partner'};
+    const SENT_ID = {ibkr:'ibkr', nbd:'nbd', 'nbd-more':'nbd', hsbc:'hsbc', 'hsbc-more':'hsbc', toPartner:'partner', 'partner-more':'partner'};
     if (parts[0] === 'done' && SENT_ID[parts[1]]) {
       const m = S.months[S.key], id = SENT_ID[parts[1]];
       resetMemo(); const R = compute(planFor(S.key), monthIn(S.key), wioStart(S.key));
-      const planned = {nbd:R.nbdSend, hsbc:R.hsbcTotal, partner:R.toPartner}[id];
+      const planned = {nbd:R.nbdSend, hsbc:R.hsbcTotal, partner:R.toPartner, ibkr:R.toIbkr}[id];
+      if (parts[1] === 'hsbc' && val && (m.sent || {}).hsbc == null) m.ibkrPlan = R.toIbkr;
       m.sent = m.sent || {}; m.sentMode = m.sentMode || {};
       if (id !== 'partner' || R.direct) {
         if (parts[1].endsWith('-more')) { if (val) m.sent[id] = planned; delete m.done[parts[1]]; }
