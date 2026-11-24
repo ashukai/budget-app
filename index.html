@@ -63,7 +63,7 @@ h1,h2,h3,p{margin:0}
 .sync{font-size:13px;color:var(--muted);display:flex;align-items:center;gap:6px;white-space:nowrap}
 .sync::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--faint);flex:none}
 .sync[data-s="synced"]::before{background:var(--accent)}
-.sync[data-s="error"]::before,.sync[data-s="auth"]::before,.sync[data-s="norepo"]::before,.sync[data-s="conflict"]::before{background:var(--warn)}
+.sync[data-s="error"]::before,.sync[data-s="auth"]::before,.sync[data-s="norepo"]::before{background:var(--warn)}
 .sync .vn{color:var(--faint);font-variant-numeric:tabular-nums}
 .top .sync{white-space:normal;text-align:right;min-width:0}
 .top .month{flex:none}
@@ -74,9 +74,6 @@ button.sync:focus-visible{outline:2px solid var(--accent);border-radius:6px}
 .banner span{font-size:14px;font-style:italic;color:var(--muted);line-height:1.35}
 .banner.tap{cursor:pointer}
 .banner.warn{background:rgba(180,83,10,.12)}
-.bbtns{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
-.bbtns button{appearance:none;border:0;border-radius:10px;padding:10px 14px;font-weight:600;font-size:15px;cursor:pointer;background:var(--card);color:var(--ink)}
-.bbtns button:first-child{background:var(--accent);color:var(--accent-ink)}
 .row.link.danger{color:var(--warn)}
 .ver{text-align:center;font-size:13px;color:var(--faint);margin:4px 0 0;font-variant-numeric:tabular-nums}
 .tabbar{position:fixed;left:0;right:0;bottom:0;z-index:6;display:grid;grid-template-columns:repeat(4,1fr);
@@ -108,6 +105,7 @@ label.row:focus-within{background:var(--accent-soft)}
 .unit{color:var(--muted);font-size:15px;flex:none}
 .vsub{font-size:13px;color:var(--muted);font-style:italic}
 .row.total{font-weight:600}
+@media (max-width:520px){.row.oo{flex-wrap:wrap}.row.oo .lab{flex:1 0 100%}.row.oo .v{margin-left:auto}}
 .row.total .unit{font-weight:400}
 .row.link{color:var(--accent);cursor:pointer;justify-content:flex-start;appearance:none;border:0;background:none;width:100%;text-align:left;font-size:17px}
 .row.link:hover{background:var(--accent-soft)}
@@ -185,7 +183,7 @@ details.sd2[open] .sl b::after{content:" ⌄"}
 .progress .track{flex:1;margin:0}
 ol.steps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px}
 ol.steps label{position:relative;display:grid;grid-template-columns:36px minmax(0,1fr) auto;gap:0 12px;align-items:center;background:var(--card);border-radius:14px;padding:14px;cursor:pointer;-webkit-tap-highlight-color:transparent}
-ol.steps input{position:absolute;opacity:0;width:1px;height:1px;pointer-events:none}
+ol.steps input:not(.sent){position:absolute;opacity:0;width:1px;height:1px;pointer-events:none}
 .box{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;border:2px solid var(--accent);color:var(--accent);font-weight:700;font-size:16px;font-family:var(--num)}
 ol.steps input:focus-visible + .box{outline:3px solid var(--accent);outline-offset:3px}
 .st{font-weight:600;font-size:17px;line-height:1.25;min-width:0}
@@ -196,6 +194,8 @@ ol.steps input:focus-visible + .box{outline:3px solid var(--accent);outline-offs
 .done label,.skip label{background:transparent;box-shadow:0 0 0 1px var(--hair)}
 .done .box{background:var(--accent);color:var(--accent-ink);font-size:19px}
 .done .st,.done .sa{color:var(--muted);text-decoration:line-through;text-decoration-color:var(--faint)}
+input.sent{appearance:none;-webkit-appearance:none;border:0;border-bottom:1px dashed var(--faint);border-radius:0;background:none;font:inherit;color:inherit;text-decoration:inherit;text-align:right;width:auto;max-width:6.5em;padding:6px 0;margin:-6px 0;outline:none}
+.done input.sent:focus{color:var(--accent);text-decoration:none}
 .skip label{cursor:default}
 .skip .box{border-color:var(--faint);color:var(--faint)}
 .skip .st,.skip .sa{color:var(--muted)}
@@ -603,7 +603,7 @@ function num(k, val, o = {}){
   const v = val == null || val === '' ? null : (o.scale ? val * o.scale : val);
   const shown = v == null ? '' : (o.dec ? nfr.format(v) : o.d2 ? nf2.format(v) : nf0.format(v));
   // size="1" stops Safari widening rows to an input's default width; the big salary box sizes to its digits
-  const size = o.cls === 'big' ? Math.max(4, (shown || String(o.ph || '')).length) : 1;
+  const size = o.cls === 'big' ? Math.max(4, (shown || String(o.ph || '')).length) : o.cls === 'sent' ? Math.max(3, shown.length) : 1;
   return `<input class="${o.cls || 'val'}" size="${size}" id="${idOf(k)}" data-k="${k}" data-num inputmode="decimal" enterkeyhint="done"${o.empty ? ' data-empty' : ''}${o.scale ? ` data-scale="${o.scale}"` : ''} value="${esc(shown)}"${o.ph != null ? ` placeholder="${esc(o.ph)}"` : ''} aria-label="${esc(o.label || k)}" autocomplete="off">`;
 }
 const txt = (k, val, o = {}) => `<input class="txt" size="1" id="${idOf(k)}" data-k="${k}" enterkeyhint="done" value="${esc(val || '')}"${o.ph ? ` placeholder="${esc(o.ph)}"` : ''} aria-label="${esc(o.label || k)}" autocomplete="off">`;
@@ -629,6 +629,7 @@ const ICONS = {
 const VIEWS = [['today','Today','Salary day'],['month','Month','This month'],['budget','Budget','Budget'],['grow','Grow','Grow']];
 
 /* ---------- Today: salary in, then the steps ---------- */
+const SENT_BOX = {nbd:'nbd', hsbc:'hsbc', toPartner:'partner'};
 function viewToday(p, R, key){
   const m = S.months[key] || {}, done = m.done || {};
   const steps = stepsFor(p, R, m);
@@ -674,7 +675,7 @@ function viewToday(p, R, key){
   <ol class="steps">
     ${steps.map((s,i) => { const d = !!done[s.id];
       const cls = [d ? 'done' : '', s.skip ? 'skip' : '', s === next ? 'next' : '', S.justDone === s.id ? 'justdone' : ''].join(' ').trim();
-      return `<li class="${cls}"><label>${s.skip ? '' : `<input type="checkbox" id="${idOf('m.done.' + s.id)}" data-k="m.done.${s.id}"${d ? ' checked' : ''} aria-label="Done: ${esc(s.t)}">`}<span class="box" aria-hidden="true">${d ? '✓' : s.skip ? '–' : i + 1}</span><span class="st">${esc(s.t)}${s === next ? '<span class="pill">Next</span>' : ''}${s.d ? `<span class="sd">${esc(s.d)}</span>` : ''}</span><span class="sa">${s.a ? esc(s.a) : ''}</span>${partsHtml(s)}</label></li>`; }).join('')}
+      return `<li class="${cls}"><label>${s.skip ? '' : `<input type="checkbox" id="${idOf('m.done.' + s.id)}" data-k="m.done.${s.id}"${d ? ' checked' : ''} aria-label="Done: ${esc(s.t)}">`}<span class="box" aria-hidden="true">${d ? '✓' : s.skip ? '–' : i + 1}</span><span class="st">${esc(s.t)}${s === next ? '<span class="pill">Next</span>' : ''}${s.d ? `<span class="sd">${esc(s.d)}</span>` : ''}</span><span class="sa">${d && SENT_BOX[s.id] && s.total != null && (s.id !== 'toPartner' || R.direct) ? `${num('m.sent.' + SENT_BOX[s.id], s.total, {cls:'sent', empty:true, label:'Actually sent, ' + s.t})} AED` : s.a ? esc(s.a) : ''}</span>${partsHtml(s)}</label></li>`; }).join('')}
   </ol>
   <details class="more"><summary>Nothing to do for these</summary><ul>${autos.map(a => `<li>${esc(a)}</li>`).join('')}</ul></details>
   <div><button type="button" class="btn-plain" data-act="copy">Copy this month as text</button><div id="copybox"></div></div>`;
@@ -810,8 +811,8 @@ function viewMonth(p, R, key){
     + row('Service fee', num('m.serviceDxb', m.serviceDxb, {empty:true, ph:r0(p.dxb.service), label:'Service fee this month'}), {tag:'label', unit:'AED',
         cap: R.serviceExtra > 0 ? `${aed(R.serviceExtra)} over the usual ${r0(p.dxb.service)} comes from this salary` : `Usually ${r0(p.dxb.service)}`});
   const ccRow = cc ? row('Credit card bill', num('m.ex.cc', (m.ex || {}).cc, {empty:true, ph:r0(cc.amt), label:'Credit card this month'}), {tag:'label', unit:'AED', cap:'From NBD'}) : '';
-  // bills grouped by place, in the order of your places, then the rest
-  const places = p.places || [], groups = new Map(places.map(pl => [pl, []]));
+  // bills grouped by place: home first, then your other places, then the rest
+  const all = S.plan.places || [], places = [...all.filter(x => x === t.home), ...all.filter(x => x !== t.home)], groups = new Map(places.map(pl => [pl, []]));
   for (const r of R.rows) { const pl = r.place && groups.has(r.place) ? r.place : ''; if (!groups.has(pl)) groups.set(pl, []); groups.get(pl).push(r); }
   let bills = '', ccDone = false, first = true;
   for (const [pl, rows] of groups) {
@@ -824,25 +825,11 @@ function viewMonth(p, R, key){
   }
   if (!ccDone && ccRow) bills += group('Other', ccRow);
   const oo = (m.oneoffs || []).map((o,i) => row(txt(`m.oneoffs.${i}.name`, o.name, {ph:'What was it?', label:'Unexpected cost'}),
-      num(`m.oneoffs.${i}.amt`, o.amt, {label:'Amount in AED'}), {unit:'AED', end:chip(`m.oneoffs.${i}.bank`, o.bank) + del('del-oneoff', i, o.name || 'cost')})).join('');
-  const rent = R.row('rentjp');
-  const eurRevo = R.rows.filter(r => r.from === 'REVO' && r.eur && !r.paid);
-  const transfers = [
-    row('WIO → NBD', num('m.sent.nbd', (m.done || {}).nbd ? (m.sent || {}).nbd : null, {empty:true, ph:r0(R.nbdSend), label:'Actually sent to NBD'}), {tag:'label', unit:'AED', cap:'Actually sent (grey = the plan) · ' + (R.nbdLeft >= 0.5 ? `${r0(R.nbdLeft)} left over in NBD · ` : R.nbdLeft <= -0.5 ? `${r0(-R.nbdLeft)} still to send · ` : '') + R.nbdParts.map(([n]) => n).join(', ') + (R.extraNbd ? `, less ${r0(R.extraNbd)} already there` : '')}),
-    row('WIO → HSBC → Revo', num('m.sent.hsbc', (m.done || {}).hsbc ? (m.sent || {}).hsbc : null, {empty:true, ph:r0(R.hsbcTotal), label:'Actually sent to Revo'}), {tag:'label', unit:'AED', cap:'Actually sent · ' + (R.hsbcLeft >= 0.5 ? `${r0(R.hsbcLeft)} left over in Revo · ` : R.hsbcLeft <= -0.5 ? `${r0(-R.hsbcLeft)} still to send · ` : '') + `About ${r0(p.hsbcFee)} fee on the way${R.extraRevo ? `, less ${r0(R.extraRevo)} already in Revo` : ''}`}),
-    R.zaba > 0 ? row('Revo → ZABA', eur(R.zaba), {cap:R.zabaParts.map(([n]) => n).join(', ')}) : '',
-    ...eurRevo.map(r => row(`Revo → ${esc(r.name)}`, eur(r.eurOut), {cap:'Sent in EUR'})),
-    rent ? row(esc(`Revo → ${t.rentTo}`), rent.paid ? '<span class="acc">Paid</span>' : jpy(rent.orig), {cap:esc(rent.name)}) : '',
-    R.direct ? row(esc(`WIO → ${t.partner}’s NBD`), num('m.sent.partner', R.sentPartner, {empty:true, ph:r0(R.toPartner), label:'Actually sent to ' + t.partner}), {tag:'label', unit:'AED', cap:esc(`Actually sent · ${r0(mortAmt)} less internet, service fee ${r0(p.dxb.service)} and ${t.utility}`)}) :
-    row(esc(`NBD → ${t.partner}`), aed(R.toPartner), {cap:esc(`${r0(mortAmt)} less internet, service fee ${r0(p.dxb.service)} and ${t.utility}`)}),
-    R.toIbkr ? row('Revo → IBKR', aed(R.toIbkr), {cap:'Savings over the WIO goal'}) : '',
-    row('Stays in WIO', aed(R.wioAfter), {cls:'total', cap:`${r0(p.spendWio + R.petty)} to spend, ${r0(R.wioSav)} savings`})
-  ].join('');
+      num(`m.oneoffs.${i}.amt`, o.amt, {label:'Amount in AED'}), {unit:'AED', cls:'oo', end:chip(`m.oneoffs.${i}.bank`, o.bank) + del('del-oneoff', i, o.name || 'cost')})).join('');
   return `
   ${group('Before salary', before, 'Type these just before salary day: they set this month’s transfers and show how last month went on Today.')}
-  ${bills}
   ${group('Unexpected costs', oo + link('add-oneoff', 'Add an unexpected cost'), 'A repair, a gift or a fine. Tap the bank to switch between NBD, Revo and WIO; that transfer grows by the amount.')}
-  ${group('Where the money goes', transfers)}
+  ${bills}
   ${group('Note', row(txt('m.note', m.note, {ph:'What you did before salary', label:'Note for this month'}), null, {tag:'label'}))}`;
 }
 
@@ -978,7 +965,7 @@ function chart(A, B, M){
 
 /* ---------- Settings: theme, and where your data lives ---------- */
 // Bump together with CACHE in sw.js on every release, so phones pick it up.
-const APP_VERSION = 12, APP_DATE = '24 Nov 2026';
+const APP_VERSION = 13, APP_DATE = '24 Nov 2026';
 const theme = () => { try { return localStorage.getItem('budget-theme') || 'auto'; } catch(e) { return 'auto'; } };
 function setTheme(v){
   try { if (v === 'auto') localStorage.removeItem('budget-theme'); else localStorage.setItem('budget-theme', v); } catch(e) {}
@@ -990,7 +977,7 @@ const cfgIn = (k, v, label, secret) => `<input class="val${secret ? ' secret' : 
 function viewSync(){
   const last = sync.last ? new Date(sync.last).toLocaleString('en-GB', {day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'}) : 'not yet';
   return `
-  ${group('Status', row(SYNC[S.sync], null, {cap:`Last saved to GitHub: ${last}${sync.dirty ? ' · changes waiting to upload' : ''}`}) + (connected() ? link('sync-now', 'Sync now') : ''))}
+  ${group('Status', row(SYNC[S.sync], null, {cap:`Last saved to GitHub: ${last}${sync.dirty ? ' · changes waiting to upload' : ''}`}) + (connected() ? link('sync-now', 'Sync now') : ''), 'Both devices check for changes every 20 seconds while open. If both change the same thing, the phone’s is kept.')}
   ${group('Your private GitHub repo',
       row('Account', cfgIn('owner', cfg.owner, 'GitHub account name'), {tag:'label'})
     + row('Repository', cfgIn('repo', cfg.repo, 'Private repository'), {tag:'label'})
@@ -1005,8 +992,7 @@ function viewSync(){
   <p class="ver">Budget + Savings · Version ${APP_VERSION} · ${APP_DATE}</p>`;
 }
 function banner(){
-  if (sync.conflict) return `<div class="banner"><b>Your other device saved changes</b><span>Both devices changed something since the last sync. Pick which copy to keep; the other stays in GitHub’s history.</span><div class="bbtns"><button type="button" data-act="use-remote">Use the other device’s</button><button type="button" data-act="keep-local">Keep this one</button></div></div>`;
-  if (S.view === 'sync') return '';
+  if (sync.newer) return `<button type="button" class="banner tap" data-act="update-app"><b>A newer version of this app is ready</b><span>Tap to update this device. Anything you changed here is kept and uploads after it.</span></button>`;
   if (!connected()) return `<button type="button" class="banner tap" data-view="sync"><b>Connect your private data</b><span>Tap here, paste your GitHub key once on this device, and your budget loads and stays in sync.</span></button>`;
   if (S.sync === 'auth') return `<button type="button" class="banner tap warn" data-view="sync"><b>GitHub didn’t accept the key</b><span>It may have been copied only partly, or it has expired. Tap to paste it again.</span></button>`;
   if (S.sync === 'norepo') return `<button type="button" class="banner tap warn" data-view="sync"><b>The key can’t see ${esc(cfg.repo)}</b><span>Check the account name, and that the key has ${esc(cfg.repo)} selected with Contents set to Read and write.</span></button>`;
@@ -1160,7 +1146,7 @@ document.addEventListener('change', e => {
   S.justDone = el.dataset.k.startsWith('m.done.') && el.checked ? el.dataset.k.slice(7) : null;
   setKey(el.dataset.k, readEl(el)); render(); S.justDone = null;
 });
-document.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.matches && e.target.matches('input.val, input.txt, input.big, input.mini')) e.target.blur(); });
+document.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.matches && e.target.matches('input.val, input.txt, input.big, input.mini, input.sent')) e.target.blur(); });
 
 function setView(v){
   S.view = v;
@@ -1199,22 +1185,25 @@ document.addEventListener('click', e => {
 const cfg = {owner:location.hostname.endsWith('.github.io') ? location.hostname.split('.')[0] : '', repo:'budget-data', path:'data.json', token:''};
 try { Object.assign(cfg, JSON.parse(localStorage.getItem('budget-sync-config') || '{}')); } catch(e) {}
 const saveCfg = () => { try { localStorage.setItem('budget-sync-config', JSON.stringify(cfg)); } catch(e) {} };
-const sync = {sha:null, dirty:false, last:null, timer:null, busy:false, conflict:null};
+const sync = {sha:null, dirty:false, last:null, timer:null, busy:false, pulling:false, prev:null, pushedAt:0, base:null, newer:false};
 try { Object.assign(sync, JSON.parse(localStorage.getItem('budget-sync-state') || '{}')); } catch(e) {}
+try { sync.base = JSON.parse(localStorage.getItem('budget-sync-base') || 'null'); } catch(e) {}
 const saveSyncState = () => { try { localStorage.setItem('budget-sync-state', JSON.stringify({sha:sync.sha, dirty:sync.dirty, last:sync.last})); } catch(e) {} };
 let editRev = 0;
 
-const SYNC = {local:'Not connected', checking:'Checking…', saving:'Saving…', synced:'Synced', offline:'Offline · saved here', auth:'Key not accepted', norepo:'Repo not reachable', error:'Sync failed · saved here', conflict:'Needs a choice'};
+const SYNC = {local:'Not connected', checking:'Checking…', saving:'Saving…', synced:'Synced', offline:'Offline · saved here', auth:'Key not accepted', norepo:'Repo not reachable', error:'Sync failed · saved here'};
 const showSync = () => document.querySelectorAll('.sync').forEach(e => { e.innerHTML = `<span>${SYNC[S.sync]}</span><span class="vn">v${APP_VERSION}</span>`; e.dataset.s = S.sync; });
 const setSync = (s, redraw) => { S.sync = s; if (redraw) render(); else showSync(); };
 const connected = () => !!(cfg.token && cfg.owner && cfg.repo);
+const isPhone = () => device() === 'iPhone';   // the phone is the main device
 const device = () => /iPhone|iPad/.test(navigator.userAgent) ? 'iPhone' : /Macintosh/.test(navigator.userAgent) ? 'Mac' : 'browser';
 
 const b64e = str => { const bytes = new TextEncoder().encode(str); let bin = ''; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000)); return btoa(bin); };
 const b64d = str => new TextDecoder().decode(Uint8Array.from(atob(str.replace(/\s/g, '')), c => c.charCodeAt(0)));
 function gh(method, body){
   const url = `https://api.github.com/repos/${encodeURIComponent(cfg.owner)}/${encodeURIComponent(cfg.repo)}/contents/${cfg.path.split('/').map(encodeURIComponent).join('/')}`;
-  return fetch(url, {method, cache:'no-store', headers:{Authorization:'Bearer ' + cfg.token, Accept:'application/vnd.github+json', 'X-GitHub-Api-Version':'2022-11-28', ...(body ? {'Content-Type':'application/json'} : {})}, body:body ? JSON.stringify(body) : undefined});
+  const signal = AbortSignal.timeout ? AbortSignal.timeout(20000) : undefined;   // a request that never answers must not block the next one
+  return fetch(url, {method, signal, cache:'no-store', headers:{Authorization:'Bearer ' + cfg.token, Accept:'application/vnd.github+json', 'X-GitHub-Api-Version':'2022-11-28', ...(body ? {'Content-Type':'application/json'} : {})}, body:body ? JSON.stringify(body) : undefined});
 }
 function applyRemote(doc){
   if (!doc || typeof doc !== 'object' || !doc.plan) return false;
@@ -1235,43 +1224,96 @@ async function readRemote(){
   return {sha:j.sha, doc:JSON.parse(b64d(j.content))};
 }
 
-// Fetch the latest copy. Untouched here: take it. Changed on both devices: ask.
-async function pull(){
+/* Changed on both devices: keep what each one changed. Where both changed the same thing, the phone's is kept. */
+const isObj = v => !!v && typeof v === 'object' && !Array.isArray(v);
+const canon = v => JSON.stringify(v, (k, x) => isObj(x) ? Object.fromEntries(Object.keys(x).sort().map(n => [n, x[n]])) : x);
+const same = (a, b) => canon(a) === canon(b);
+const WHOLE = ['frozen', 'rates'];   // only make sense as one piece
+function merge3(base, mine, theirs, mineWins, name){
+  if (same(mine, theirs)) return mine;
+  if (base !== undefined && same(mine, base)) return theirs;
+  if (base !== undefined && same(theirs, base)) return mine;
+  if (isObj(mine) && isObj(theirs) && !WHOLE.includes(name)) {
+    const out = {};
+    for (const k of new Set([...Object.keys(theirs), ...Object.keys(mine)])) {
+      const v = merge3(isObj(base) ? base[k] : undefined, mine[k], theirs[k], mineWins, k);
+      if (v !== undefined) out[k] = v;
+    }
+    return out;
+  }
+  if (base === undefined && mine === undefined) return theirs;
+  if (base === undefined && theirs === undefined) return mine;
+  return mineWins ? mine : theirs;
+}
+function setBase(doc){ sync.base = clone({plan:doc.plan, months:doc.months}); try { localStorage.setItem('budget-sync-base', JSON.stringify(sync.base)); } catch(e) {} }
+// Take in the copy from GitHub, together with anything changed here and not uploaded yet
+function absorb(res){
+  const theirs = {plan:mergePlan(res.doc.plan), months:res.doc.months || {}}, mine = {plan:S.plan, months:S.months};
+  let next = theirs;
+  if (sync.dirty) next = sync.base ? merge3({plan:mergePlan(sync.base.plan), months:sync.base.months || {}}, mine, theirs, isPhone()) : isPhone() ? mine : theirs;
+  S.plan = clone(next.plan); S.months = clone(next.months);
+  sync.dirty = sync.dirty && !same(next, theirs);
+  sync.sha = res.sha; sync.last = res.doc.savedAt || sync.last;
+  setBase(theirs); cache(); saveSyncState();
+}
+// The other device runs a newer version: an old version must not save over what it wrote
+function tooOld(doc){
+  sync.newer = !!doc && doc.appV > APP_VERSION;
+  if (sync.newer) updateApp(false);
+  return sync.newer;
+}
+
+// Fetch the latest copy from GitHub. Quiet = the regular check while the app is open.
+async function pull(quiet){
   if (!connected()) return setSync('local');
   if (!navigator.onLine) return setSync('offline');
-  if (sync.busy) return;
-  if (S.sync !== 'conflict') setSync('checking');
+  if (sync.busy || sync.pulling) return;
+  if (!quiet) setSync('checking');
+  const at = sync.sha;
   let res;
-  try { res = await readRemote(); } catch(e) { return setSync('offline'); }
+  sync.pulling = true;
+  try { res = await readRemote(); } catch(e) { return setSync('offline'); } finally { sync.pulling = false; }
+  if (sync.busy || sync.sha !== at) return;                                    // saved meanwhile: this answer is already old
   if (res.auth) return setSync('auth', true);
   if (res.norepo) return setSync('norepo', true);
   if (res.error) return setSync('error');
   if (res.missing) { sync.sha = null; return sync.dirty ? push() : setSync('synced'); }
-  if (res.sha === sync.sha) { if (sync.dirty) return push(); setSync('synced', S.sync === 'auth'); return settlePast(); }
-  if (!sync.dirty) { applyRemote(res.doc); sync.sha = res.sha; sync.last = res.doc.savedAt || sync.last; saveSyncState(); setSync('synced', true); return settlePast(); }
-  sync.conflict = res; setSync('conflict', true);
+  if (!res.doc || typeof res.doc !== 'object' || !res.doc.plan) return setSync('error');
+  if (res.sha === sync.prev && Date.now() - sync.pushedAt < 60000) return setSync('synced');   // GitHub still answering with the copy before our save
+  if (tooOld(res.doc)) { absorb(res); return setSync('synced', true); }
+  if (res.sha === sync.sha) { setBase({plan:mergePlan(res.doc.plan), months:res.doc.months || {}}); if (sync.dirty) return push(); setSync('synced', S.sync === 'auth'); return settlePast(); }
+  absorb(res); setSync('synced', true);
+  if (sync.dirty) return push();
+  settlePast();
 }
 
-async function push(){
+async function push(tries = 0){
   clearTimeout(sync.timer);
-  if (!connected() || sync.busy || sync.conflict) return;
+  if (!connected() || sync.busy || sync.newer) return;
   if (!navigator.onLine) return setSync('offline');
   sync.busy = true; setSync('saving');
   const rev = editRev;
-  const doc = {app:'budget-savings', v:1, savedAt:new Date().toISOString(), device:device(), plan:S.plan, months:S.months};
+  const doc = clone({app:'budget-savings', v:1, appV:APP_VERSION, savedAt:new Date().toISOString(), device:device(), plan:S.plan, months:S.months});
   let r = null;
   try { r = await gh('PUT', {message:`Saved on ${doc.device}`, content:b64e(JSON.stringify(doc, null, 1)), ...(sync.sha ? {sha:sync.sha} : {})}); } catch(e) {}
+  if (r && (r.status === 409 || r.status === 422)) {   // the other device saved first: put the two together and save again
+    let res = null;
+    try { res = await readRemote(); } catch(e) {}
+    sync.busy = false;
+    if (res && res.doc && res.doc.plan && res.sha !== sync.sha && tries < 3) {
+      const old = tooOld(res.doc);
+      absorb(res); setSync('synced', true);
+      return sync.dirty && !old ? push(tries + 1) : undefined;
+    }
+    return setSync('error');
+  }
   sync.busy = false;
   if (!r) return setSync('offline');
   if (r.ok) {
     const j = await r.json();
-    sync.sha = j.content.sha; sync.last = doc.savedAt;
-    if (editRev === rev) sync.dirty = false; else sync.timer = setTimeout(push, 1500);
+    sync.prev = sync.sha; sync.pushedAt = Date.now(); sync.sha = j.content.sha; sync.last = doc.savedAt; setBase(doc);
+    if (editRev === rev) sync.dirty = false; else sync.timer = setTimeout(() => push(), 1500);
     saveSyncState(); return setSync('synced', S.sync === 'auth');
-  }
-  if (r.status === 409 || r.status === 422) {   // the other device saved first
-    try { const res = await readRemote(); if (res.doc) { sync.conflict = res; return setSync('conflict', true); } } catch(e) {}
-    return setSync('error');
   }
   if (r.status === 401 || r.status === 403 || r.status === 404) return setSync('auth', true);
   setSync('error');
@@ -1280,8 +1322,8 @@ async function push(){
 function queueSave(){
   editRev++; sync.dirty = true; saveSyncState();
   if (!connected()) return;
-  clearTimeout(sync.timer); sync.timer = setTimeout(push, 2000);
-  if (S.sync !== 'conflict') setSync(navigator.onLine ? 'saving' : 'offline');
+  clearTimeout(sync.timer); sync.timer = setTimeout(() => push(), 2000);
+  setSync(navigator.onLine ? 'saving' : 'offline');
 }
 
 // The boxes save as you type or paste: closing the app with the cursor still in the box keeps the key.
@@ -1292,13 +1334,17 @@ function cfgEdited(el, now){
   const go = () => {
     const sig = JSON.stringify([cfg.owner, cfg.repo, cfg.token]);
     if (sig === cfgSeen && !['local','auth','norepo','error'].includes(S.sync)) return;
-    cfgSeen = sig; sync.sha = null; saveSyncState(); render(); pull();
+    cfgSeen = sig; sync.sha = null; sync.base = null; saveSyncState(); render(); pull();
   };
   if (now) go(); else cfgTimer = setTimeout(go, 900);
 }
 document.addEventListener('input', e => { if (e.target.dataset && e.target.dataset.cfg) cfgEdited(e.target, false); });
 
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') { if (sync.dirty) push(); } else { pull(); refreshRates(); } });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') { if (sync.dirty) push(); } else { pull(); refreshRates(); lookForUpdate(); } });
+// A window left open keeps up by itself: on coming back to it, and every 20 seconds while it is on screen
+const tick = () => { if (document.visibilityState === 'visible' && navigator.onLine && connected() && !['auth','norepo'].includes(S.sync) && !document.querySelector('input:focus')) pull(true); };
+window.addEventListener('focus', () => { tick(); lookForUpdate(); });
+setInterval(tick, 20000);
 window.addEventListener('online', () => pull());
 window.addEventListener('offline', () => setSync('offline'));
 
@@ -1321,10 +1367,9 @@ document.addEventListener('click', e => {
   if (act === 'sync-now') { if (sync.dirty) push(); else pull(); }
   if (act === 'connect') { document.querySelectorAll('[data-cfg]').forEach(i => { cfg[i.dataset.cfg] = i.value.trim(); }); saveCfg(); if (document.activeElement) document.activeElement.blur(); cfgEdited(null, true); }
   if (act === 'theme') { setTheme(b.dataset.v); render(); }
-  if (act === 'use-remote' && sync.conflict) { applyRemote(sync.conflict.doc); sync.sha = sync.conflict.sha; sync.last = sync.conflict.doc.savedAt || sync.last; sync.dirty = false; sync.conflict = null; saveSyncState(); setSync('synced', true); }
-  if (act === 'keep-local' && sync.conflict) { sync.sha = sync.conflict.sha; sync.conflict = null; saveSyncState(); render(); push(); }
+  if (act === 'update-app') updateApp(true);
   if (act === 'export') {
-    const doc = {app:'budget-savings', v:1, savedAt:new Date().toISOString(), device:device(), plan:S.plan, months:S.months};
+    const doc = {app:'budget-savings', v:1, appV:APP_VERSION, savedAt:new Date().toISOString(), device:device(), plan:S.plan, months:S.months};
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([JSON.stringify(doc, null, 1)], {type:'application/json'}));
     a.download = `budget-savings-${new Date().toISOString().slice(0,10)}.json`;
@@ -1333,13 +1378,29 @@ document.addEventListener('click', e => {
   if (act === 'forget' && confirm('Forget the GitHub key on this device? Your data stays on GitHub and on this device.')) { cfg.token = ''; saveCfg(); setSync('local', true); }
 });
 
+// Keeping the app itself up to date, also in a window that is never closed (never while you're typing)
+function updateApp(force){
+  if (!force && document.querySelector('input:focus')) return;
+  try {
+    if (!force && Date.now() - (+sessionStorage.getItem('budget-reload-at') || 0) < 300000) return;   // never reload in a loop
+    sessionStorage.setItem('budget-reload-at', Date.now());
+  } catch(e) { if (!force) return; }
+  const go = () => location.reload();
+  if (force && window.caches) caches.keys().then(ks => Promise.all(ks.map(k => caches.delete(k)))).then(go, go); else go();
+}
+let swReg = null, lookedAt = Date.now();
+async function newerHere(){
+  try { const n = Math.max(0, ...(await caches.keys()).map(k => +(/^budget-app-v(\d+)$/.exec(k) || [])[1] || 0)); if (n > APP_VERSION) updateApp(false); } catch(e) {}
+}
+function lookForUpdate(){
+  newerHere();
+  if (!swReg || Date.now() - lookedAt < 60000) return;
+  lookedAt = Date.now(); swReg.update().catch(() => {});
+}
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
-  // When a new version of the app arrives, switch to it once (never while you're typing)
-  const hadVersion = !!navigator.serviceWorker.controller;
-  navigator.serviceWorker.addEventListener('controllerchange', () => {
-    if (hadVersion && !sessionStorage.getItem('budget-updated') && !document.querySelector('input:focus')) { sessionStorage.setItem('budget-updated', '1'); location.reload(); }
-  });
-  navigator.serviceWorker.register('sw.js').catch(() => {});
+  navigator.serviceWorker.addEventListener('controllerchange', newerHere);
+  navigator.serviceWorker.register('sw.js', {updateViaCache:'none'}).then(r => { swReg = r; }).catch(() => {});
+  setInterval(() => { if (document.visibilityState === 'visible') lookForUpdate(); }, 600000);
 }
 if (theme() !== 'auto') setTheme(theme());
 S.sync = connected() ? 'checking' : 'local';
